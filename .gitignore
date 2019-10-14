@@ -4,14 +4,14 @@
 *.o
 
 # Compiled Dynamic libraries
-*.dll
-*.so
-*.dylib
+#*.dll
+#*.so
+#*.dylib
 
 # Compiled Static libraries
-*.lai
-*.la
-*.a
+#*.lai
+#*.la
+#*.a
 
 # CMake
 CMakeCache.txt
@@ -21,7 +21,7 @@ cmake_install.cmake
 install_manifest.txt
 
 # Python
-*.py[cod]
+#*.py[cod]
 
 # Installer logs
 pip-log.txt
