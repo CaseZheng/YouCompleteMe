@@ -5,13 +5,13 @@
 
 # Compiled Dynamic libraries
 #*.dll
-#*.so
+*.so
 #*.dylib
 
 # Compiled Static libraries
 #*.lai
 #*.la
-#*.a
+*.a
 
 # CMake
 CMakeCache.txt
@@ -58,3 +58,8 @@ cpp/llvm/tools/clang/www/*
 
 # Exclude auto generated vim doc tags.
 doc/tags
+
+.coveragerc
+.hgignore
+.hgtags
+.travis.yml
