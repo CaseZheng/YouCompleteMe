@@ -51,25 +51,24 @@ CONNECTION_TIMEOUT         = 5
 MAX_QUEUED_MESSAGES = 250
 
 PROVIDERS_MAP = {
-  'definitionProvider': (
-    lambda self, request_data, args: self.GoTo( request_data, [ 'Definition' ] )
-  ),
   'declarationProvider': (
     lambda self, request_data, args: self.GoTo( request_data,
                                                 [ 'Declaration' ] )
+  ),
+  'definitionProvider': (
+    lambda self, request_data, args: self.GoTo( request_data, [ 'Definition' ] )
   ),
   ( 'definitionProvider', 'declarationProvider' ): (
     lambda self, request_data, args: self.GoTo( request_data,
                                                 [ 'Definition',
                                                   'Declaration' ] )
   ),
+  'documentFormattingProvider': (
+    lambda self, request_data, args: self.Format( request_data )
+  ),
   'executeCommandProvider': (
     lambda self, request_data, args: self.ExecuteCommand( request_data,
                                                           args )
-  ),
-  'typeDefinitionProvider': (
-    lambda self, request_data, args: self.GoTo( request_data,
-                                                [ 'TypeDefinition' ] )
   ),
   'implementationProvider': (
     lambda self, request_data, args: self.GoTo( request_data,
@@ -82,9 +81,10 @@ PROVIDERS_MAP = {
   'renameProvider': (
     lambda self, request_data, args: self.RefactorRename( request_data, args )
   ),
-  'documentFormattingProvider': (
-    lambda self, request_data, args: self.Format( request_data )
-  )
+  'typeDefinitionProvider': (
+    lambda self, request_data, args: self.GoTo( request_data,
+                                                [ 'TypeDefinition' ] )
+  ),
 }
 
 # Each command is mapped to a list of providers. This allows a command to use
@@ -773,6 +773,8 @@ class LanguageServerCompleter( Completer ):
         self._UpdateServerWithFileContents( request_data )
     )
 
+    self._signature_help_disabled = user_options[ 'disable_signature_help' ]
+
 
   def ServerReset( self ):
     """Clean up internal state related to the running server instance.
@@ -1062,6 +1064,49 @@ class LanguageServerCompleter( Completer ):
 
     request_data[ 'start_codepoint' ] = min_start_codepoint
     return completions
+
+
+  def SignatureHelpAvailable( self ):
+    if self._signature_help_disabled:
+      return responses.SignatureHelpAvailalability.NOT_AVAILABLE
+
+    if not self.ServerIsReady():
+      return responses.SignatureHelpAvailalability.PENDING
+
+    if bool( self._server_capabilities.get( 'signatureHelpProvider' ) ):
+      return responses.SignatureHelpAvailalability.AVAILABLE
+    else:
+      return responses.SignatureHelpAvailalability.NOT_AVAILABLE
+
+  def ComputeSignaturesInner( self, request_data ):
+    if not self.ServerIsReady():
+      return {}
+
+    if not self._server_capabilities.get( 'signatureHelpProvider' ):
+      return {}
+
+    self._UpdateServerWithFileContents( request_data )
+
+    request_id = self.GetConnection().NextRequestId()
+    msg = lsp.SignatureHelp( request_id, request_data )
+
+    response = self.GetConnection().GetResponse( request_id,
+                                                 msg,
+                                                 REQUEST_TIMEOUT_COMPLETION )
+
+    result = response[ 'result' ]
+    for sig in result[ 'signatures' ]:
+      sig_label = sig[ 'label' ]
+      end = 0
+      for arg in sig[ 'parameters' ]:
+        arg_label = arg[ 'label' ]
+        assert not isinstance( arg_label, list )
+        begin = sig[ 'label' ].find( arg_label, end )
+        end = begin + len( arg_label )
+        arg[ 'label' ] = [
+          utils.CodepointOffsetToByteOffset( sig_label, begin ),
+          utils.CodepointOffsetToByteOffset( sig_label, end ) ]
+    return result
 
 
   def GetCustomSubcommands( self ):
@@ -1596,6 +1641,11 @@ class LanguageServerCompleter( Completer ):
     return server_trigger_characters
 
 
+  def GetSignatureTriggerCharacters( self, server_trigger_characters ):
+    """Same as _GetTriggerCharacters but for signature help."""
+    return server_trigger_characters
+
+
   def _HandleInitializeInPollThread( self, response ):
     """Called within the context of the LanguageServerConnection's message pump
     when the initialize request receives a response."""
@@ -1624,7 +1674,7 @@ class LanguageServerCompleter( Completer ):
                      self._sync_type )
 
       # Update our semantic triggers if they are supplied by the server
-      if self.prepared_triggers is not None:
+      if self.completion_triggers is not None:
         server_trigger_characters = (
           ( self._server_capabilities.get( 'completionProvider' ) or {} )
                                      .get( 'triggerCharacters' ) or []
@@ -1641,7 +1691,27 @@ class LanguageServerCompleter( Completer ):
                        self.Language(),
                        ','.join( trigger_characters ) )
 
-          self.prepared_triggers.SetServerSemanticTriggers(
+          self.completion_triggers.SetServerSemanticTriggers(
+            trigger_characters )
+
+      if self.signature_triggers is not None:
+        server_trigger_characters = (
+          ( self._server_capabilities.get( 'signatureHelpProvider' ) or {} )
+                                     .get( 'triggerCharacters' ) or []
+        )
+        LOGGER.debug( '%s: Server declares signature trigger characters: %s',
+                      self.Language(),
+                      server_trigger_characters )
+
+        trigger_characters = self.GetSignatureTriggerCharacters(
+          server_trigger_characters )
+
+        if trigger_characters:
+          LOGGER.info( '%s: Using characters for signature triggers: %s',
+                       self.Language(),
+                       ','.join( trigger_characters ) )
+
+          self.signature_triggers.SetServerSemanticTriggers(
             trigger_characters )
 
       # We must notify the server that we received the initialize response (for
@@ -1751,57 +1821,68 @@ class LanguageServerCompleter( Completer ):
     self._UpdateServerWithFileContents( request_data )
 
     line_num_ls = request_data[ 'line_num' ] - 1
-
-    def WithinRange( diag ):
-      start = diag[ 'range' ][ 'start' ]
-      end = diag[ 'range' ][ 'end' ]
-
-      if line_num_ls < start[ 'line' ] or line_num_ls > end[ 'line' ]:
-        return False
-
-      return True
-
-    with self._server_info_mutex:
-      file_diagnostics = list( self._latest_diagnostics[
-          lsp.FilePathToUri( request_data[ 'filepath' ] ) ] )
-
-    matched_diagnostics = [
-      d for d in file_diagnostics if WithinRange( d )
-    ]
-
     request_id = self.GetConnection().NextRequestId()
-    if matched_diagnostics:
+    if 'range' in request_data:
+      LOGGER.debug( 'Lines1 = %s', request_data[ 'lines' ] )
+      LOGGER.debug( 'CAR = %s', request_data[ 'range' ] )
       code_actions = self.GetConnection().GetResponse(
         request_id,
         lsp.CodeAction( request_id,
                         request_data,
-                        matched_diagnostics[ 0 ][ 'range' ],
-                        matched_diagnostics ),
+                        lsp.Range( request_data ),
+                        [] ),
         REQUEST_TIMEOUT_COMMAND )
-
     else:
-      line_value = request_data[ 'line_value' ]
 
-      code_actions = self.GetConnection().GetResponse(
-        request_id,
-        lsp.CodeAction(
+      def WithinRange( diag ):
+        start = diag[ 'range' ][ 'start' ]
+        end = diag[ 'range' ][ 'end' ]
+
+        if line_num_ls < start[ 'line' ] or line_num_ls > end[ 'line' ]:
+          return False
+
+        return True
+
+      with self._server_info_mutex:
+        file_diagnostics = list( self._latest_diagnostics[
+            lsp.FilePathToUri( request_data[ 'filepath' ] ) ] )
+
+      matched_diagnostics = [
+        d for d in file_diagnostics if WithinRange( d )
+      ]
+
+      if matched_diagnostics:
+        code_actions = self.GetConnection().GetResponse(
           request_id,
-          request_data,
-          # Use the whole line
-          {
-            'start': {
-              'line': line_num_ls,
-              'character': 0,
+          lsp.CodeAction( request_id,
+                          request_data,
+                          matched_diagnostics[ 0 ][ 'range' ],
+                          matched_diagnostics ),
+          REQUEST_TIMEOUT_COMMAND )
+
+      else:
+        line_value = request_data[ 'line_value' ]
+
+        code_actions = self.GetConnection().GetResponse(
+          request_id,
+          lsp.CodeAction(
+            request_id,
+            request_data,
+            # Use the whole line
+            {
+              'start': {
+                'line': line_num_ls,
+                'character': 0,
+              },
+              'end': {
+                'line': line_num_ls,
+                'character': lsp.CodepointsToUTF16CodeUnits(
+                  line_value,
+                  len( line_value ) + 1 ) - 1,
+              }
             },
-            'end': {
-              'line': line_num_ls,
-              'character': lsp.CodepointsToUTF16CodeUnits(
-                line_value,
-                len( line_value ) + 1 ) - 1,
-            }
-          },
-          [] ),
-        REQUEST_TIMEOUT_COMMAND )
+            [] ),
+          REQUEST_TIMEOUT_COMMAND )
 
     result = code_actions[ 'result' ]
     if result is None:
@@ -1840,6 +1921,15 @@ class LanguageServerCompleter( Completer ):
     return responses.BuildFixItResponse( [ fixit ] )
 
 
+  def AdditionalFormattingOptions( self, request_data ):
+    module = extra_conf_store.ModuleForSourceFile( request_data[ 'filepath' ] )
+    try:
+      settings = self.GetSettings( module, request_data )
+      return settings.get( 'formatting_options', {} )
+    except AttributeError:
+      return {}
+
+
   def Format( self, request_data ):
     """Issues the formatting or rangeFormatting request (depending on the
     presence of a range) and returns the result as a FixIt response."""
@@ -1848,6 +1938,8 @@ class LanguageServerCompleter( Completer ):
 
     self._UpdateServerWithFileContents( request_data )
 
+    request_data[ 'options' ].update(
+      self.AdditionalFormattingOptions( request_data ) )
     request_id = self.GetConnection().NextRequestId()
     if 'range' in request_data:
       message = lsp.RangeFormatting( request_id, request_data )
