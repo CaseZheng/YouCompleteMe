@@ -1,4 +1,4 @@
-# Copyright (C) 2015-2018 ycmd contributors
+# Copyright (C) 2015-2020 ycmd contributors
 #
 # This file is part of ycmd.
 #
@@ -14,13 +14,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
-
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
 
 import json
 import logging
@@ -42,7 +35,7 @@ from ycmd.utils import LOGGER, re
 SERVER_NOT_RUNNING_MESSAGE = 'TSServer is not running.'
 NO_DIAGNOSTIC_MESSAGE = 'No diagnostic for current line!'
 
-RESPONSE_TIMEOUT_SECONDS = 10
+RESPONSE_TIMEOUT_SECONDS = 20
 
 TSSERVER_DIR = os.path.abspath(
   os.path.join( os.path.dirname( __file__ ), '..', '..', '..', 'third_party',
@@ -51,7 +44,7 @@ TSSERVER_DIR = os.path.abspath(
 LOGFILE_FORMAT = 'tsserver_'
 
 
-class DeferredResponse( object ):
+class DeferredResponse:
   """
   A deferred that resolves to a response from TSServer.
   """
@@ -138,7 +131,7 @@ class TypeScriptCompleter( Completer ):
 
 
   def __init__( self, user_options ):
-    super( TypeScriptCompleter, self ).__init__( user_options )
+    super().__init__( user_options )
 
     self._logfile = None
 
@@ -176,6 +169,11 @@ class TypeScriptCompleter( Completer ):
     self._latest_diagnostics_for_file_lock = threading.Lock()
     self._latest_diagnostics_for_file = defaultdict( list )
 
+    # There's someting in the API that lists the trigger characters, but
+    # there is no way to request that from the server, so we just hard-code
+    # the signature triggers.
+    self.SetSignatureHelpTriggers( [ '(', ',', '<' ] )
+
     LOGGER.info( 'Enabling TypeScript completion' )
 
 
@@ -198,7 +196,7 @@ class TypeScriptCompleter( Completer ):
       # looking at the source code it seems like this is the way:
       # https://github.com/Microsoft/TypeScript/blob/8a93b489454fdcbdf544edef05f73a913449be1d/src/server/server.ts#L136
       environ = os.environ.copy()
-      utils.SetEnviron( environ, 'TSS_LOG', tsserver_log )
+      environ[ 'TSS_LOG' ] = tsserver_log
 
       LOGGER.info( 'TSServer log file: %s', self._logfile )
 
@@ -364,6 +362,10 @@ class TypeScriptCompleter( Completer ):
     return [ 'javascript', 'typescript', 'typescriptreact' ]
 
 
+  def SignatureHelpAvailable( self ):
+    return responses.SignatureHelpAvailalability.AVAILABLE
+
+
   def ComputeCandidatesInner( self, request_data ):
     self._Reload( request_data )
     entries = self._SendRequest( 'completions', {
@@ -418,32 +420,34 @@ class TypeScriptCompleter( Completer ):
 
   def GetSubcommandsMap( self ):
     return {
-      'RestartServer'  : ( lambda self, request_data, args:
-                           self._RestartServer( request_data ) ),
-      'StopServer'     : ( lambda self, request_data, args:
-                           self._StopServer() ),
-      'GoTo'           : ( lambda self, request_data, args:
-                           self._GoToDefinition( request_data ) ),
-      'GoToDefinition' : ( lambda self, request_data, args:
-                           self._GoToDefinition( request_data ) ),
-      'GoToDeclaration': ( lambda self, request_data, args:
-                           self._GoToDefinition( request_data ) ),
-      'GoToReferences' : ( lambda self, request_data, args:
-                           self._GoToReferences( request_data ) ),
-      'GoToType'       : ( lambda self, request_data, args:
-                           self._GoToType( request_data ) ),
-      'GetType'        : ( lambda self, request_data, args:
-                           self._GetType( request_data ) ),
-      'GetDoc'         : ( lambda self, request_data, args:
-                           self._GetDoc( request_data ) ),
-      'FixIt'          : ( lambda self, request_data, args:
-                           self._FixIt( request_data, args ) ),
-      'OrganizeImports': ( lambda self, request_data, args:
-                           self._OrganizeImports( request_data ) ),
-      'RefactorRename' : ( lambda self, request_data, args:
-                           self._RefactorRename( request_data, args ) ),
-      'Format'         : ( lambda self, request_data, args:
-                           self._Format( request_data ) ),
+      'RestartServer'     : ( lambda self, request_data, args:
+                              self._RestartServer( request_data ) ),
+      'StopServer'        : ( lambda self, request_data, args:
+                              self._StopServer() ),
+      'GoTo'              : ( lambda self, request_data, args:
+                              self._GoToDefinition( request_data ) ),
+      'GoToDefinition'    : ( lambda self, request_data, args:
+                              self._GoToDefinition( request_data ) ),
+      'GoToDeclaration'   : ( lambda self, request_data, args:
+                              self._GoToDefinition( request_data ) ),
+      'GoToImplementation': ( lambda self, request_data, args:
+                              self._GoToImplementation( request_data ) ),
+      'GoToReferences'    : ( lambda self, request_data, args:
+                              self._GoToReferences( request_data ) ),
+      'GoToType'          : ( lambda self, request_data, args:
+                              self._GoToType( request_data ) ),
+      'GetType'           : ( lambda self, request_data, args:
+                              self._GetType( request_data ) ),
+      'GetDoc'            : ( lambda self, request_data, args:
+                              self._GetDoc( request_data ) ),
+      'FixIt'             : ( lambda self, request_data, args:
+                              self._FixIt( request_data, args ) ),
+      'OrganizeImports'   : ( lambda self, request_data, args:
+                              self._OrganizeImports( request_data ) ),
+      'RefactorRename'    : ( lambda self, request_data, args:
+                              self._RefactorRename( request_data, args ) ),
+      'Format'            : ( lambda self, request_data, args:
+                              self._Format( request_data ) ),
     }
 
 
@@ -581,6 +585,55 @@ class TypeScriptCompleter( Completer ):
     return responses.BuildDisplayMessageResponse( closest_diagnostic.text_ )
 
 
+  def ComputeSignaturesInner( self, request_data ):
+    self._Reload( request_data )
+    try:
+      items = self._SendRequest( 'signatureHelp', {
+        'file': request_data[ 'filepath' ],
+        'line': request_data[ 'line_num' ],
+        'offset': request_data[ 'start_codepoint' ],
+        # triggerReason - opitonal and tricky to populate
+      } )
+    except RuntimeError:
+      # We get an exception when there are no results, so squash it
+      if LOGGER.isEnabledFor( logging.DEBUG ):
+        LOGGER.exception( "No signatures from tsserver" )
+      return {}
+
+    def MakeSignature( s ):
+      label = _DisplayPartsToString( s[ 'prefixDisplayParts' ] )
+      parameters = []
+      sep = _DisplayPartsToString( s[ 'separatorDisplayParts' ] )
+      for index, p in enumerate( s[ 'parameters' ] ):
+        param = _DisplayPartsToString( p[ 'displayParts' ] )
+        start = len( label )
+        end = start + len( param )
+
+        label += param
+        if index < len( s[ 'parameters' ] ) - 1:
+          label += sep
+
+        parameters.append( {
+          'label': [ utils.CodepointOffsetToByteOffset( label, start ),
+                     utils.CodepointOffsetToByteOffset( label, end ) ]
+        } )
+
+      label += _DisplayPartsToString( s[ 'suffixDisplayParts' ] )
+
+      return {
+        'label': label,
+        'parameters': parameters
+      }
+
+    return {
+      'activeSignature': items[ 'selectedItemIndex' ],
+      'activeParameter': items[ 'argumentIndex' ],
+      'signatures': [
+        MakeSignature( s ) for s in items[ 'items' ]
+      ]
+    }
+
+
   def _GetSemanticDiagnostics( self, filename ):
     return self._SendRequest( 'semanticDiagnosticsSync', {
       'file': filename,
@@ -597,14 +650,11 @@ class TypeScriptCompleter( Completer ):
 
   def _GoToDefinition( self, request_data ):
     self._Reload( request_data )
-    try:
-      filespans = self._SendRequest( 'definition', {
-        'file':   request_data[ 'filepath' ],
-        'line':   request_data[ 'line_num' ],
-        'offset': request_data[ 'column_codepoint' ]
-      } )
-    except RuntimeError:
-      raise RuntimeError( 'Could not find definition.' )
+    filespans = self._SendRequest( 'definition', {
+      'file':   request_data[ 'filepath' ],
+      'line':   request_data[ 'line_num' ],
+      'offset': request_data[ 'column_codepoint' ]
+    } )
 
     if not filespans:
       raise RuntimeError( 'Could not find definition.' )
@@ -615,6 +665,29 @@ class TypeScriptCompleter( Completer ):
                       span[ 'file' ],
                       span[ 'start' ][ 'line' ],
                       span[ 'start' ][ 'offset' ] ) )
+
+
+  def _GoToImplementation( self, request_data ):
+    self._Reload( request_data )
+    filespans = self._SendRequest( 'implementation', {
+      'file':   request_data[ 'filepath' ],
+      'line':   request_data[ 'line_num' ],
+      'offset': request_data[ 'column_codepoint' ]
+    } )
+
+    if not filespans:
+      raise RuntimeError( 'No implementation found.' )
+
+    results = []
+    for span in filespans:
+      filename = span[ 'file' ]
+      start = span[ 'start' ]
+      lines = GetFileLines( request_data, span[ 'file' ] )
+      line_num = start[ 'line' ]
+      results.append( responses.BuildGoToResponseFromLocation(
+        _BuildLocation( lines, filename, line_num, start[ 'offset' ] ),
+        lines[ line_num - 1 ] ) )
+    return results
 
 
   def _GoToReferences( self, request_data ):
@@ -878,8 +951,7 @@ def _LogLevel():
 
 
 def _BuildCompletionExtraMenuAndDetailedInfo( request_data, entry ):
-  display_parts = entry[ 'displayParts' ]
-  signature = ''.join( [ part[ 'text' ] for part in display_parts ] )
+  signature = _DisplayPartsToString( entry[ 'displayParts' ] )
   if entry[ 'name' ] == signature:
     extra_menu_info = None
     detailed_info = []
@@ -1001,3 +1073,7 @@ def _BuildTsFormatRange( request_data ):
     'endLine': end_line_num,
     'endOffset': end_codepoint
   }
+
+
+def _DisplayPartsToString( parts ):
+  return ''.join( [ p[ 'text' ] for p in parts ] )

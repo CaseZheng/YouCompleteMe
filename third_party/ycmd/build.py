@@ -1,11 +1,4 @@
-#!/usr/bin/env python
-
-# Passing an environment variable containing unicode literals to a subprocess
-# on Windows and Python2 raises a TypeError. Since there is no unicode
-# string in this script, we don't import unicode_literals to avoid the issue.
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
+#!/usr/bin/env python3
 
 from tempfile import mkdtemp
 import argparse
@@ -28,9 +21,10 @@ import tempfile
 IS_64BIT = sys.maxsize > 2**32
 PY_MAJOR, PY_MINOR = sys.version_info[ 0 : 2 ]
 PY_VERSION = sys.version_info[ 0 : 3 ]
-if PY_VERSION < ( 2, 7, 1 ) or ( 3, 0, 0 ) <= PY_VERSION < ( 3, 5, 1 ):
-  sys.exit( 'ycmd requires Python >= 2.7.1 or >= 3.5.1; '
-            'your version of Python is ' + sys.version )
+if PY_VERSION < ( 3, 5, 1 ):
+  sys.exit( 'ycmd requires Python >= 3.5.1; '
+            'your version of Python is ' + sys.version +
+            '\nHint: Try running python3 ' + ' '.join( sys.argv ) )
 
 DIR_OF_THIS_SCRIPT = p.dirname( p.abspath( __file__ ) )
 DIR_OF_THIRD_PARTY = p.join( DIR_OF_THIS_SCRIPT, 'third_party' )
@@ -93,7 +87,7 @@ JDTLS_SHA256 = (
   '06c499bf151d78027c2480bcbcca313f70ae0e8e07fc07cea6319359aea848f4'
 )
 
-TSSERVER_VERSION = '3.6.3'
+TSSERVER_VERSION = '3.7.2'
 
 RUST_TOOLCHAIN = 'nightly-2019-09-05'
 RLS_DIR = p.join( DIR_OF_THIRD_PARTY, 'rls' )
@@ -274,9 +268,7 @@ def GetGlobalPythonPrefix():
     return sys.real_prefix
   # In a pyvenv (only available on Python 3), sys.base_prefix points to the
   # parent Python prefix. Outside a pyvenv, it is equal to sys.prefix.
-  if PY_MAJOR >= 3:
-    return sys.base_prefix
-  return sys.prefix
+  return sys.base_prefix
 
 
 def GetPossiblePythonLibraryDirectories():
@@ -444,6 +436,10 @@ def ParseArguments():
                               'on the ycm_core code itself.' )
   parser.add_argument( '--core-tests', nargs = '?', const = '*',
                        help = 'Run core tests and optionally filter them.' )
+  parser.add_argument( '--cmake-path',
+                       help = 'For developers: specify the cmake executable. '
+                              'Useful for testing with specific versions, or '
+                              'if the system is unable to find cmake.' )
 
   # These options are deprecated.
   parser.add_argument( '--omnisharp-completer', action = 'store_true',
@@ -480,8 +476,13 @@ def ParseArguments():
   return args
 
 
-def FindCmake():
-  return FindExecutableOrDie( 'cmake', 'CMake is required to build ycmd' )
+def FindCmake( args ):
+  cmake_exe = 'cmake'
+
+  if args.cmake_path:
+    cmake_exe = args.cmake_path
+
+  return FindExecutableOrDie( cmake_exe, 'CMake is required to build ycmd' )
 
 
 def GetCmakeCommonArgs( args ):
@@ -518,9 +519,6 @@ def GetCmakeArgs( parsed_args ):
   # coverage is not supported for c++ on MSVC
   if not OnWindows() and parsed_args.enable_coverage:
     cmake_args.append( '-DCMAKE_CXX_FLAGS=-coverage' )
-
-  use_python2 = 'ON' if PY_MAJOR == 2 else 'OFF'
-  cmake_args.append( '-DUSE_PYTHON2=' + use_python2 )
 
   extra_cmake_args = os.environ.get( 'EXTRA_CMAKE_ARGS', '' )
   # We use shlex split to properly parse quoted CMake arguments.
@@ -776,24 +774,24 @@ def GetCsCompleterDataForPlatform():
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-win-x86.zip' ),
-      'check_sum': ( '502fc39472137c86aaa0010abc91c46d0c35e685d56ebdc1b90bb67'
-                     '3172c86ec' ),
+      'check_sum': ( 'd66ee6ce347bba58de06a585bff63e8f42178c8b212883be0700919'
+                     '61c3c63d6' ),
     },
     'win64': {
       'file_name': 'omnisharp.http-win-x64.zip',
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-win-x64.zip' ),
-      'check_sum': ( '86806a3ac552da12c843eb29e92f9ec4bdf4606b80794edb88ef483'
-                     'd3387dfae' ),
+      'check_sum': ( 'ab6bdac04b7225a69de11a0bdf0777facbe7d9895e9b6b4c8ebe8b5'
+                     '4b51412e5' ),
     },
     'macos': {
       'file_name': 'omnisharp.http-osx.tar.gz',
       'version': 'v1.34.2',
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-osx.tar.gz' ),
-      'check_sum': ( 'c5eff2f196df794e8f4f4ab2894f5e6e550bd7635b9569b1e1a2581'
-                     '382aa2cbe' ),
+      'check_sum': ( 'bea5e6e35a45bcece293ad2a32b717be16242d5ee6ca0004ca1c7af'
+                     'c9cacdbf7' ),
     },
     'linux64': {
       'file_name': 'omnisharp.http-linux-x64.tar.gz',
@@ -801,8 +799,8 @@ def GetCsCompleterDataForPlatform():
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-linux-x64.tar.g'
                         'z' ),
-      'check_sum': ( 'c78b5830b8d6e3c06d9f1a9aae929311907f3de4c4267823730b565'
-                     '2e2947588' ),
+      'check_sum': ( '16aa6f3d97c11829b3fc177cea5c221ddb952a5d372fe84e735f695'
+                     '50d661722' ),
     },
     'linux32': {
       'file_name': 'omnisharp.http-linux-x86.tar.gz',
@@ -810,8 +808,8 @@ def GetCsCompleterDataForPlatform():
       'download_url': ( 'https://github.com/OmniSharp/omnisharp-roslyn/relea'
                         'ses/download/v1.34.2/omnisharp.http-linux-x86.tar.g'
                         'z' ),
-      'check_sum': ( 'd893d5bdf8621c7a3070fbeda20162b7bcf390b2c1add73c58d3851'
-                     'b3ec605b4' ),
+      'check_sum': ( '6f89480ce95286640f670943f5d8e0d1f1c28db6bab07461be3f452'
+                     'e8b43c70b' ),
     },
   }
   if OnWindows():
@@ -844,8 +842,7 @@ def ReadToolchainVersion():
     filepath = p.join( RLS_DIR, 'TOOLCHAIN_VERSION' )
     with open( filepath ) as f:
       return f.read().strip()
-  # We need to check for IOError for Python 2 and OSError for Python 3.
-  except ( IOError, OSError ):
+  except OSError:
     return None
 
 
@@ -861,34 +858,27 @@ def EnableRustCompleter( switches ):
     new_env = os.environ.copy()
     new_env[ 'RUSTUP_HOME' ] = install_dir
 
-    # Python versions older than 2.7.9 lack SNI support which is required to
-    # download rustup from the official website.
-    if PY_VERSION < ( 2, 7, 9 ):
-      rustup = FindExecutableOrDie( 'rustup',
-                                    'rustup is required to install RLS '
-                                    'on Python < 2.7.9.' )
+    rustup_init = os.path.join( install_dir, 'rustup-init' )
+
+    if OnWindows():
+      rustup_cmd = [ rustup_init ]
+      rustup_url = 'https://win.rustup.rs/{}'.format(
+        'x86_64' if IS_64BIT else 'i686' )
     else:
-      rustup_init = os.path.join( install_dir, 'rustup-init' )
+      rustup_cmd = [ 'sh', rustup_init ]
+      rustup_url = 'https://sh.rustup.rs'
 
-      if OnWindows():
-        rustup_cmd = [ rustup_init ]
-        rustup_url = 'https://win.rustup.rs/{}'.format(
-          'x86_64' if IS_64BIT else 'i686' )
-      else:
-        rustup_cmd = [ 'sh', rustup_init ]
-        rustup_url = 'https://sh.rustup.rs'
+    DownloadFileTo( rustup_url, rustup_init )
 
-      DownloadFileTo( rustup_url, rustup_init )
+    new_env[ 'CARGO_HOME' ] = install_dir
 
-      new_env[ 'CARGO_HOME' ] = install_dir
+    CheckCall( rustup_cmd + [ '-y',
+                              '--default-toolchain', 'none',
+                              '--no-modify-path' ],
+               env = new_env,
+               quiet = switches.quiet )
 
-      CheckCall( rustup_cmd + [ '-y',
-                                '--default-toolchain', 'none',
-                                '--no-modify-path' ],
-                 env = new_env,
-                 quiet = switches.quiet )
-
-      rustup = os.path.join( install_dir, 'bin', 'rustup' )
+    rustup = os.path.join( install_dir, 'bin', 'rustup' )
 
     try:
       CheckCall( [ rustup, 'toolchain', 'install', RUST_TOOLCHAIN ],
@@ -1106,7 +1096,7 @@ def WritePythonUsedDuringBuild():
 
 
 def DoCmakeBuilds( args ):
-  cmake = FindCmake()
+  cmake = FindCmake( args )
   cmake_common_args = GetCmakeCommonArgs( args )
 
   if not args.skip_build:

@@ -9,7 +9,7 @@ ARG YCM_PYTHON_VERSION=3.5.2
 
 RUN apt-get update && \
   apt-get -y dist-upgrade && \
-  apt-get -y install ca-cacert \
+  apt-get -y --no-install-recommends install ca-cacert \
                      locales \
                      tzdata \
                      language-pack-en \
@@ -21,8 +21,12 @@ RUN apt-get update && \
                      sudo \
                      python-dev \
                      python-pip \
+                     python-setuptools \
                      python3-dev \
                      python3-pip \
+                     python3-setuptools \
+                     openjdk-11-jdk-headless \
+                     npm \
                      zlib1g-dev && \
   apt-get -y autoremove
 
@@ -51,6 +55,9 @@ RUN mkdir -p /home/linuxbrew/.linuxbrew &&\
     ln -s /home/linuxbrew/.linuxbrew/Homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin && \
     echo "eval \$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" \
         > /etc/bash.bashrc
+
+# Python
+RUN ${YCM_VIM_PYTHON} -m pip install --upgrade pip setuptools wheel
 
 # clean up
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* &&\

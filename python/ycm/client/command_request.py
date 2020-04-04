@@ -15,13 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with YouCompleteMe.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-# Not installing aliases from python-future; it's unreliable and slow.
-from builtins import *  # noqa
-
 from ycm.client.base_request import BaseRequest, BuildRequestData
 from ycm import vimsupport
 from ycmd.utils import ToUnicode
@@ -44,16 +37,17 @@ class CommandRequest( BaseRequest ):
     self._buffer_command = buffer_command
     self._extra_data = extra_data
     self._response = None
+    self._request_data = None
 
 
   def Start( self ):
-    request_data = BuildRequestData()
+    self._request_data = BuildRequestData()
     if self._extra_data:
-      request_data.update( self._extra_data )
-    request_data.update( {
+      self._request_data.update( self._extra_data )
+    self._request_data.update( {
       'command_arguments': self._arguments
     } )
-    self._response = self.PostDataToHandler( request_data,
+    self._response = self.PostDataToHandler( self._request_data,
                                              'run_completer_command' )
 
 
@@ -109,14 +103,23 @@ class CommandRequest( BaseRequest ):
 
         # When there are multiple fixit suggestions, present them as a list to
         # the user hand have her choose which one to apply.
-        if len( self._response[ 'fixits' ] ) > 1:
+        fixits = self._response[ 'fixits' ]
+        if len( fixits ) > 1:
           fixit_index = vimsupport.SelectFromList(
             "Multiple FixIt suggestions are available at this location. "
             "Which one would you like to apply?",
-            [ fixit[ 'text' ] for fixit in self._response[ 'fixits' ] ] )
+            [ fixit[ 'text' ] for fixit in fixits ] )
+        chosen_fixit = fixits[ fixit_index ]
+        if chosen_fixit[ 'resolve' ]:
+          self._request_data.update( { 'fixit': chosen_fixit } )
+          response = self.PostDataToHandler( self._request_data,
+                                             'resolve_fixit' )
+          fixits = response[ 'fixits' ]
+          assert len( fixits ) == 1
+          chosen_fixit = fixits[ 0 ]
 
         vimsupport.ReplaceChunks(
-          self._response[ 'fixits' ][ fixit_index ][ 'chunks' ],
+          chosen_fixit[ 'chunks' ],
           silent = self._command == 'Format' )
       except RuntimeError as e:
         vimsupport.PostVimMessage( str( e ) )

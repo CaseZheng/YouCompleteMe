@@ -8,13 +8,11 @@ your machine.
 
 * Make sure you have docker installed (duh)
 * Run `./docker/manual/run`.
-  * This will use a Vim build with python 3
-  * If you want python2, run `./docker/manual/run --py 2`
 * You should now be in the container. Your YCM checkout is now mounted in
   `$HOME/YouCompleteMe`
 * Run the following setup:
   * `cd YouCompleteMe`
-  * `python3 install.py --clangd-completer`
+  * `python3 install.py --ts-completer --clangd-completer --java-completer`
   * `sudo -H pip3 install -r python/test_requirements.txt`
 * Run the tests:
   * `./test/run_vim_tests`
@@ -31,7 +29,7 @@ in which you can run the tests.
 * Ensure you have at least the Vim vresion in YCM_VIM_VERSION (in
   `test/docker/ci/image/Dockerfile`)
 * Ensure ycmd is compiled ***with python3*** and clangd is enabled
-  `python3 install.py --clangd-completer`
+  `python3 install.py --ts-completer --clangd-completer --java-completer`
 * Install the test python deps (`pip install -r python/test_requirements.txt`)
 * Run `./run_vim_tests`
 
@@ -248,15 +246,13 @@ To get a local summary:
 
 # Docker
 
-We generate and push 4 containers:
+We generate and push 2 containers:
 
 * `youcompleteme/ycm-vim-py3:test` and `youcompleteme/ycm-vim-py3:manual`
-* `youcompleteme/ycm-vim-py2:test` and `youcompleteme/ycm-vim-py2:manual`
 
 The `:test` tags are the containers that are used by Azure pipelines to run the
 tests and contains essentially Ubuntu LTS + the YCM dependencies and a build of
-Vim at a specific version built with either python3 (`-py3`) or python 2
-(`-py2`) support.. 
+Vim at a specific version built with python3 (`-py3`) support.
 
 The `:manual` tags extend the `:test` tags with a user account that largely
 matches the one created by Azure to run our tests. It also installs a basic
