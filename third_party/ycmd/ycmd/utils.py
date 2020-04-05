@@ -80,8 +80,12 @@ CORE_OUTDATED_STATUS    = 7
 # doesn't get closed. So, a helper func.
 # Also, all files we read are UTF-8.
 def ReadFile( filepath ):
-  with open( filepath, encoding = 'utf8' ) as f:
-    return f.read()
+  #with open( filepath, encoding = 'utf8' ) as f:
+  #  return f.read()
+  with open(filepath, 'rb') as f:
+    data = f.read()
+    dataEncode = chardet.detect(data)['encoding']
+    return data.decode(dataEncode).encode('utf8').decode('utf8')
 
 
 # Returns a file object that can be used to replace sys.stdout or sys.stderr
