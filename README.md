@@ -19,6 +19,7 @@ endif
 ## 依赖环境
 1. vim 64位 需要支持python3[https://github.com/vim/vim-win32-installer](https://github.com/vim/vim-win32-installer)
 2. python 3.7.4 64位
+3. Visual Studio 2019（不安装无法补全标准库）
 
 ## 编译时命令
 ```
