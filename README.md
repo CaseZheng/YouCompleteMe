@@ -26,7 +26,7 @@ endif
 git clone --depth=1 https://github.com/ycm-core/YouCompleteMe.git
 cd YouCompleteMe
 git submodule update --init --recursive
-python install.py --clang-completer --go-completer --msvc=16
+python install.py --clangd-completer --go-completer --msvc=16
 ```
 
 ## 编译时碰到问题
