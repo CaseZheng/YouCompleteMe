@@ -1,5 +1,4 @@
 [package]
 name = "common"
 version = "0.1.0"
-
-[dependencies]
+edition = "2018"

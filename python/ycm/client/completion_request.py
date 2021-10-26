@@ -18,9 +18,10 @@
 import json
 import logging
 from ycmd.utils import ToUnicode
-from ycm.client.base_request import ( BaseRequest, DisplayServerException,
+from ycm.client.base_request import ( BaseRequest,
+                                      DisplayServerException,
                                       MakeServerException )
-from ycm import vimsupport
+from ycm import vimsupport, base
 from ycm.vimsupport import NO_COMPLETIONS
 
 _logger = logging.getLogger( __name__ )
@@ -28,7 +29,7 @@ _logger = logging.getLogger( __name__ )
 
 class CompletionRequest( BaseRequest ):
   def __init__( self, request_data ):
-    super( CompletionRequest, self ).__init__()
+    super().__init__()
     self.request_data = request_data
     self._response_future = None
 
@@ -67,6 +68,10 @@ class CompletionRequest( BaseRequest ):
   def Response( self ):
     response = self._RawResponse()
     response[ 'completions' ] = _ConvertCompletionDatasToVimDatas(
+        response[ 'completions' ] )
+    # FIXME: Do we really need to do this AdjustCandidateInsertionText ? I feel
+    # like Vim should do that for us
+    response[ 'completions' ] = base.AdjustCandidateInsertionText(
         response[ 'completions' ] )
     return response
 
@@ -107,8 +112,7 @@ class CompletionRequest( BaseRequest ):
       return
 
     if len( namespaces ) > 1:
-      choices = [ "{0} {1}".format( i + 1, n )
-                  for i, n in enumerate( namespaces ) ]
+      choices = [ f"{ i + 1 } { n }" for i, n in enumerate( namespaces ) ]
       choice = vimsupport.PresentDialog( "Insert which namespace:", choices )
       if choice < 0:
         return
@@ -152,7 +156,7 @@ def _FilterToMatchingCompletions( completed_item, completions ):
   match_keys = [ 'word', 'abbr', 'menu', 'info' ]
   matched_completions = []
   for completion in completions:
-    item = _ConvertCompletionDataToVimData( completion )
+    item = ConvertCompletionDataToVimData( completion )
 
     def matcher( key ):
       return ( ToUnicode( completed_item.get( key, "" ) ) ==
@@ -179,13 +183,28 @@ def _GetCompletionInfoField( completion_data ):
   return info.replace( '\x00', '' )
 
 
-def _ConvertCompletionDataToVimData( completion_data ):
+def ConvertCompletionDataToVimData( completion_data ):
   # See :h complete-items for a description of the dictionary fields.
+  extra_menu_info = completion_data.get( 'extra_menu_info', '' )
+  preview_info = _GetCompletionInfoField( completion_data )
+
+  # When we are using a popup for the preview_info, it needs to fit on the
+  # screen alongside the extra_menu_info. Let's use some heuristics.  If the
+  # length of the extra_menu_info is more than, say, 1/3 of screen, truncate it
+  # and stick it in the preview_info.
+  if vimsupport.UsingPreviewPopup():
+    max_width = max( int( vimsupport.DisplayWidth() / 3 ), 3 )
+    extra_menu_info_width = vimsupport.DisplayWidthOfString( extra_menu_info )
+    if extra_menu_info_width > max_width:
+      if not preview_info.startswith( extra_menu_info ):
+        preview_info = extra_menu_info + '\n\n' + preview_info
+      extra_menu_info = extra_menu_info[ : ( max_width - 3 ) ] + '...'
+
   return {
     'word'     : completion_data[ 'insertion_text' ],
     'abbr'     : completion_data.get( 'menu_text', '' ),
-    'menu'     : completion_data.get( 'extra_menu_info', '' ),
-    'info'     : _GetCompletionInfoField( completion_data ),
+    'menu'     : extra_menu_info,
+    'info'     : preview_info,
     'kind'     : ToUnicode( completion_data.get( 'kind', '' ) )[ :1 ].lower(),
     # Disable Vim filtering.
     'equal'    : 1,
@@ -205,4 +224,4 @@ def _ConvertCompletionDataToVimData( completion_data ):
 
 
 def _ConvertCompletionDatasToVimDatas( response_data ):
-  return [ _ConvertCompletionDataToVimData( x ) for x in response_data ]
+  return [ ConvertCompletionDataToVimData( x ) for x in response_data ]

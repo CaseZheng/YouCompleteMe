@@ -1,4 +1,3 @@
-# python > 2.7
 import pytest
 from pytest import fixture
 
@@ -129,8 +128,6 @@ def test_p(monkeyp
 def test_p(monkeypatch):
     #? ['setattr']
     monkeypatch.setatt
-
-# python > 3.4
 
 #? ['capsysbinary']
 def test_p(capsysbin

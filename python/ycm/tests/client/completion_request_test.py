@@ -17,31 +17,35 @@
 
 import json
 from hamcrest import assert_that, equal_to
+from unittest import TestCase
+from ycm.tests import UserOptions
 from ycm.tests.test_utils import MockVimModule
 vim_mock = MockVimModule()
 
 from ycm.client import completion_request
 
 
-class ConvertCompletionResponseToVimDatas_test:
+class ConvertCompletionResponseToVimDatasTest( TestCase ):
   """ This class tests the
-      completion_request._ConvertCompletionResponseToVimDatas method """
+      completion_request.ConvertCompletionResponseToVimDatas method """
 
   def _Check( self, completion_data, expected_vim_data ):
-    vim_data = completion_request._ConvertCompletionDataToVimData(
+    vim_data = completion_request.ConvertCompletionDataToVimData(
         completion_data )
 
     try:
-      assert_that( expected_vim_data, equal_to( vim_data ) )
+      assert_that( vim_data, equal_to( expected_vim_data ) )
     except Exception:
-      print( "Expected:\n'{}'\nwhen parsing:\n'{}'\nBut found:\n'{}'".format(
-          expected_vim_data,
-          completion_data,
-          vim_data ) )
+      print( "Expected:\n"
+               f"'{ expected_vim_data }'\n"
+             "when parsing:\n'"
+               f"{ completion_data }'\n"
+             "But found:\n"
+               f"'{ vim_data }'" )
       raise
 
 
-  def AllFields_test( self ):
+  def test_AllFields( self ):
     extra_data = {
         'doc_string':    'DOC STRING',
     }
@@ -65,7 +69,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def OnlyInsertionTextField_test( self ):
+  def test_OnlyInsertionTextField( self ):
     self._Check( {
       'insertion_text':  'INSERTION TEXT'
     }, {
@@ -81,7 +85,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def JustDetailedInfo_test( self ):
+  def test_JustDetailedInfo( self ):
     self._Check( {
       'insertion_text':  'INSERTION TEXT',
       'menu_text':       'MENU TEXT',
@@ -101,7 +105,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def JustDocString_test( self ):
+  def test_JustDocString( self ):
     extra_data = {
       'doc_string':    'DOC STRING',
     }
@@ -124,7 +128,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def ExtraInfoNoDocString_test( self ):
+  def test_ExtraInfoNoDocString( self ):
     self._Check( {
       'insertion_text':  'INSERTION TEXT',
       'menu_text':       'MENU TEXT',
@@ -145,7 +149,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def NullCharactersInExtraInfoAndDocString_test( self ):
+  def test_NullCharactersInExtraInfoAndDocString( self ):
     extra_data = {
       'doc_string': 'DOC\x00STRING'
     }
@@ -169,7 +173,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def ExtraInfoNoDocStringWithDetailedInfo_test( self ):
+  def test_ExtraInfoNoDocStringWithDetailedInfo( self ):
     self._Check( {
       'insertion_text':  'INSERTION TEXT',
       'menu_text':       'MENU TEXT',
@@ -191,7 +195,7 @@ class ConvertCompletionResponseToVimDatas_test:
     } )
 
 
-  def EmptyInsertionText_test( self ):
+  def test_EmptyInsertionText( self ):
     extra_data = {
       'doc_string':    'DOC STRING',
     }
@@ -213,3 +217,105 @@ class ConvertCompletionResponseToVimDatas_test:
       'empty'    : 1,
       'user_data': json.dumps( extra_data ),
     } )
+
+
+  def test_TruncateForPopup( self, *args ):
+    with UserOptions( { '&columns': 60, '&completeopt': b'popup,menuone' } ):
+      extra_data = {
+        'doc_string':    'DOC STRING',
+      }
+      self._Check( {
+        'insertion_text':  '',
+        'menu_text':       'MENU TEXT',
+        'extra_menu_info': 'ESPECIALLY LONG EXTRA MENU INFO LOREM IPSUM DOLOR',
+        'kind':            'K',
+        'detailed_info':   'DETAILED INFO',
+        'extra_data': extra_data,
+      }, {
+        'word'     : '',
+        'abbr'     : 'MENU TEXT',
+        'menu'     : 'ESPECIALLY LONG E...',
+        'kind'     : 'k',
+        'info'     : 'ESPECIALLY LONG EXTRA MENU INFO LOREM IPSUM DOLOR\n\n' +
+                     'DETAILED INFO\nDOC STRING',
+        'equal'    : 1,
+        'dup'      : 1,
+        'empty'    : 1,
+        'user_data': json.dumps( extra_data ),
+      } )
+
+
+  def test_OnlyTruncateForPopupIfNecessary( self, *args ):
+    with UserOptions( { '&columns': 60, '&completeopt': b'popup,menuone' } ):
+      extra_data = {
+        'doc_string':    'DOC STRING',
+      }
+      self._Check( {
+        'insertion_text':  '',
+        'menu_text':       'MENU TEXT',
+        'extra_menu_info': 'EXTRA MENU INFO',
+        'kind':            'K',
+        'detailed_info':   'DETAILED INFO',
+        'extra_data': extra_data,
+      }, {
+        'word'     : '',
+        'abbr'     : 'MENU TEXT',
+        'menu'     : 'EXTRA MENU INFO',
+        'kind'     : 'k',
+        'info'     : 'DETAILED INFO\nDOC STRING',
+        'equal'    : 1,
+        'dup'      : 1,
+        'empty'    : 1,
+        'user_data': json.dumps( extra_data ),
+      } )
+
+
+  def test_DontTruncateIfNotPopup( self, *args ):
+    with UserOptions( { '&columns': 60, '&completeopt': b'preview,menuone' } ):
+      extra_data = {
+        'doc_string':    'DOC STRING',
+      }
+      self._Check( {
+        'insertion_text':  '',
+        'menu_text':       'MENU TEXT',
+        'extra_menu_info': 'ESPECIALLY LONG EXTRA MENU INFO LOREM IPSUM DOLOR',
+        'kind':            'K',
+        'detailed_info':   'DETAILED INFO',
+        'extra_data': extra_data,
+      }, {
+        'word'     : '',
+        'abbr'     : 'MENU TEXT',
+        'menu'     : 'ESPECIALLY LONG EXTRA MENU INFO LOREM IPSUM DOLOR',
+        'kind'     : 'k',
+        'info'     : 'DETAILED INFO\nDOC STRING',
+        'equal'    : 1,
+        'dup'      : 1,
+        'empty'    : 1,
+        'user_data': json.dumps( extra_data ),
+      } )
+
+
+  def test_TruncateForPopupWithoutDuplication( self, *args ):
+    with UserOptions( { '&columns': 60, '&completeopt': b'popup,menuone' } ):
+      extra_data = {
+        'doc_string':    'DOC STRING',
+      }
+      self._Check( {
+        'insertion_text':  '',
+        'menu_text':       'MENU TEXT',
+        'extra_menu_info': 'ESPECIALLY LONG METHOD SIGNATURE LOREM IPSUM',
+        'kind':            'K',
+        'detailed_info':   'ESPECIALLY LONG METHOD SIGNATURE LOREM IPSUM',
+        'extra_data': extra_data,
+      }, {
+        'word'     : '',
+        'abbr'     : 'MENU TEXT',
+        'menu'     : 'ESPECIALLY LONG M...',
+        'kind'     : 'k',
+        'info'     : 'ESPECIALLY LONG METHOD SIGNATURE LOREM IPSUM\n' +
+                     'DOC STRING',
+        'equal'    : 1,
+        'dup'      : 1,
+        'empty'    : 1,
+        'user_data': json.dumps( extra_data ),
+      } )

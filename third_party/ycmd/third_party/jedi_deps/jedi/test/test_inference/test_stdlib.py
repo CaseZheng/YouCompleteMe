@@ -77,6 +77,7 @@ def test_namedtuple_infer(Script):
 
     assert d1.get_line_code() == "class Foo(tuple):\n"
     assert d1.module_path is None
+    assert d1.docstring() == 'Foo(id, timestamp, gps_timestamp, attributes)'
 
 
 def test_re_sub(Script, environment):
@@ -89,14 +90,8 @@ def test_re_sub(Script, environment):
         return {d.name for d in defs}
 
     names = run("import re; re.sub('a', 'a', 'f')")
-    if environment.version_info.major == 2:
-        assert names == {'str'}
-    else:
-        assert names == {'str'}
+    assert names == {'str'}
 
     # This param is missing because of overloading.
     names = run("import re; re.sub('a', 'a')")
-    if environment.version_info.major == 2:
-        assert names == {'str', 'unicode'}
-    else:
-        assert names == {'str', 'bytes'}
+    assert names == {'str', 'bytes'}

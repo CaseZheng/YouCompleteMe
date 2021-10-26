@@ -1,7 +1,5 @@
 """
-Test the typing library, with docstrings. This is needed since annotations
-are not supported in python 2.7 else then annotating by comment (and this is
-still TODO at 2016-01-23)
+Test the typing library, with docstrings and annotations
 """
 import typing
 class B:
@@ -283,7 +281,17 @@ def testnewtype2(y):
     y
     #? []
     y.
-# python >= 3.4
+
+# The type of a NewType is equivalent to the type of its underlying type.
+MyInt = typing.NewType('MyInt', int)
+x = type(MyInt)
+#? type.mro
+x.mro
+
+PlainInt = int
+y = type(PlainInt)
+#? type.mro
+y.mro
 
 class TestDefaultDict(typing.DefaultDict[str, int]):
     def setdud(self):
@@ -311,7 +319,6 @@ for key in x.keys():
 for value in x.values():
     #? int()
     value
-# python >= 3.4
 
 
 """
@@ -341,9 +348,8 @@ typing.Optional[0]
 
 TYPE_VARX = typing.TypeVar('TYPE_VARX')
 TYPE_VAR_CONSTRAINTSX = typing.TypeVar('TYPE_VAR_CONSTRAINTSX', str, int)
-# TODO there should at least be some results.
-#? []
-TYPE_VARX.
+#? ['__class__']
+TYPE_VARX.__clas
 #! ["TYPE_VARX = typing.TypeVar('TYPE_VARX')"]
 TYPE_VARX
 
@@ -406,6 +412,7 @@ type_in_out2()
 type_in_out2(float)
 
 def ma(a: typing.Callable[[str], TYPE_VARX]) -> typing.Callable[[str], TYPE_VARX]:
+    #? typing.Callable()
     return a
 
 def mf(s: str) -> int:
@@ -435,6 +442,12 @@ def call3_pls() -> typing.Callable[[typing.Callable[[int], TYPE_VARX]], typing.L
 def the_callable() -> float: ...
 #? float()
 call3_pls()(the_callable)[0]
+
+def call4_pls(fn: typing.Callable[..., TYPE_VARX]) -> typing.Callable[..., TYPE_VARX]:
+    return ""
+
+#? int()
+call4_pls(lambda x: 1)()
 
 # -------------------------
 # TYPE_CHECKING
@@ -493,3 +506,89 @@ def dynamic_annotation(x: int):
 
 #? int()
 dynamic_annotation('')
+
+# -------------------------
+# TypeDict
+# -------------------------
+
+# python >= 3.8
+
+class Foo(typing.TypedDict):
+    foo: str
+    bar: typing.List[float]
+    an_int: int
+    #! ['foo: str']
+    foo
+    #? str()
+    foo
+    #? int()
+    an_int
+
+def typed_dict_test_foo(arg: Foo):
+    a_string = arg['foo']
+    a_list_of_floats = arg['bar']
+    an_int = arg['an_int']
+
+    #? str()
+    a_string
+    #? list()
+    a_list_of_floats
+    #? float()
+    a_list_of_floats[0]
+    #? int()
+    an_int
+
+    #? ['isupper']
+    a_string.isuppe
+    #? ['pop']
+    a_list_of_floats.po
+    #? ['as_integer_ratio']
+    an_int.as_integer_rati
+
+#! ['class Foo']
+d: Foo
+#? str()
+d['foo']
+#? float()
+d['bar'][0]
+#?
+d['baz']
+
+#?
+d.foo
+#?
+d.bar
+#! []
+d.foo
+
+#? []
+Foo.set
+#? ['setdefault']
+d.setdefaul
+#? []
+Foo.setdefaul
+
+#? 5 ["'foo"]
+d['fo']
+#? 5 ['"bar"']
+d["bar"]
+
+class Bar(Foo):
+    another_variable: int
+
+    #? int()
+    another_variable
+    #?
+    an_int
+
+def typed_dict_test_foo(arg: Bar):
+    #? str()
+    arg['foo']
+    #? list()
+    arg['bar']
+    #? float()
+    arg['bar'][0]
+    #? int()
+    arg['an_int']
+    #? int()
+    arg['another_variable']

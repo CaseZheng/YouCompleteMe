@@ -24,27 +24,18 @@ function! s:restore_cpo()
   unlet s:save_cpo
 endfunction
 
+" NOTE: The minimum supported version is 8.1.2269, but neovim always reports as
+" v:version 800, but will largely work.
+let s:is_neovim = has( 'nvim' )
+
 if exists( "g:loaded_youcompleteme" )
   call s:restore_cpo()
   finish
-elseif v:version < 704 || (v:version == 704 && !has( 'patch1578' ))
+elseif ( v:version < 801 || (v:version == 801 && !has( 'patch2269' )) ) &&
+      \ !s:is_neovim
   echohl WarningMsg |
-        \ echomsg "YouCompleteMe unavailable: requires Vim 7.4.1578+." |
+        \ echomsg "YouCompleteMe unavailable: requires Vim 8.1.2269+." |
         \ echohl None
-  if v:version == 704 && has( 'patch8056' )
-    " Very very special case for users of the default Vim on macOS. For some
-    " reason, that version of Vim contains a completely arbitrary (presumably
-    " custom) patch '8056', which fools users (but not our has( 'patch1578' )
-    " check) into thinking they have a sufficiently new Vim. In fact they do
-    " not and YCM fails to initialise. So we give them a more specific warning.
-    echohl WarningMsg
-          \ | echomsg
-          \ "Info: You appear to be running the default system Vim on macOS. "
-          \ . "It reports as patch 8056, but it is really older than 1578. "
-          \ . "Please consider MacVim, homebrew Vim or a self-built Vim that "
-          \ . "satisfies the minimum requirement."
-          \ | echohl None
-  endif
   call s:restore_cpo()
   finish
 elseif !has( 'timers' )
@@ -54,11 +45,10 @@ elseif !has( 'timers' )
         \ echohl None
   call s:restore_cpo()
   finish
-elseif ( v:version > 800 || ( v:version == 800 && has( 'patch1436' ) ) ) &&
-     \ !has( 'python3_compiled' )
+elseif !has( 'python3_compiled' )
   echohl WarningMsg |
         \ echomsg "YouCompleteMe unavailable: requires Vim compiled with " .
-        \ "Python (3.5.1+) support." |
+        \ "Python (3.6.0+) support." |
         \ echohl None
   call s:restore_cpo()
   finish
@@ -82,16 +72,6 @@ endif
 
 let g:loaded_youcompleteme = 1
 
-let s:default_options = {}
-if exists( '*json_decode' )
-  let s:script_folder_path = expand( '<sfile>:p:h' )
-  let s:option_file = s:script_folder_path .
-        \ '/../third_party/ycmd/ycmd/default_settings.json'
-  if filereadable( s:option_file )
-    let s:default_options = json_decode( join( readfile( s:option_file ) ) )
-  endif
-endif
-
 "
 " List of YCM options.
 "
@@ -112,6 +92,12 @@ let g:ycm_filetype_blacklist =
       \   'leaderf': 1,
       \   'mail': 1
       \ } )
+
+" Blacklist empty buffers unless explicity whitelisted; workaround for
+" https://github.com/ycm-core/YouCompleteMe/issues/3781
+if !has_key( g:ycm_filetype_whitelist, 'ycm_nofiletype' )
+  let g:ycm_filetype_blacklist.ycm_nofiletype = 1
+endif
 
 let g:ycm_open_loclist_on_ycm_diags =
       \ get( g:, 'ycm_open_loclist_on_ycm_diags', 1 )
@@ -206,6 +192,12 @@ let g:ycm_goto_buffer_command =
 let g:ycm_disable_for_files_larger_than_kb =
       \ get( g:, 'ycm_disable_for_files_larger_than_kb', 1000 )
 
+let g:ycm_auto_hover =
+      \ get( g:, 'ycm_auto_hover', 'CursorHold' )
+
+let g:ycm_update_diagnostics_in_insert_mode =
+      \ get( g:, 'ycm_update_diagnostics_in_insert_mode', 1 )
+
 "
 " List of ycmd options.
 "
@@ -294,15 +286,8 @@ let g:ycm_java_jdtls_workspace_root_path =
 let g:ycm_python_binary_path =
       \ get( g:, 'ycm_python_binary_path', '' )
 
-" Populate any other (undocumented) options set in the ycmd
-" default_settings.json. This ensures that any part of ycm that uses ycmd code
-" will have the default set. I'm looking at you, Omni-completer.
-for key in keys( s:default_options )
-  if ! has_key( g:, 'ycm_' . key )
-    let g:[ 'ycm_' . key ] = s:default_options[ key ]
-  endif
-endfor
-unlet key
+let g:ycm_refilter_workspace_symbols =
+      \ get( g:, 'ycm_refilter_workspace_symbols', 1 )
 
 if has( 'vim_starting' ) " Loading at startup.
   " We defer loading until after VimEnter to allow the gui to fork (see

@@ -69,7 +69,7 @@ def RunTest( app, test ):
                             } ),
                             expect_errors = True )
 
-  print( 'completer response: {0}'.format( pformat( response.json ) ) )
+  print( f'completer response: { pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -328,7 +328,7 @@ def GetCompletions_IgoreNonJSFiles_test( app ):
     'filepath': PathToTestFile( 'trivial2.js' ),
   } ) ).json
 
-  print( 'completer response: {0}'.format( pformat( response, indent=2 ) ) )
+  print( f'completer response: { pformat( response ) }' )
 
   assert_that( response,
     has_entries( {
@@ -373,12 +373,12 @@ def GetCompletions_IncludeMultiFileType_test( app ):
     'force_semantic': True,
   } ) ).json
 
-  print( 'completer response: {0}'.format( pformat( response, indent=2 ) ) )
+  print( f'completer response: { pformat( response, indent = 2 ) }' )
 
   assert_that( response,
     has_entries( {
       'completion_start_column': 3,
-      # Note: This time, we *do* see the completions, becuase one of the 2
+      # Note: This time, we *do* see the completions, because one of the 2
       # filetypes for trivial.js is javascript.
       'completions': contains_inanyorder(
           CompletionEntryMatcher( 'y', 'string' ),
@@ -493,3 +493,8 @@ def GetCompletions_ChangeStartColumn_test( app ):
       } )
     },
   } )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

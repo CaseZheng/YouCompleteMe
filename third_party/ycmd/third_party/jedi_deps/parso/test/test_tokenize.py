@@ -1,10 +1,8 @@
 # -*- coding: utf-8    # This file contains Unicode characters.
 
-import sys
 from textwrap import dedent
 
 import pytest
-import sys
 
 from parso.utils import split_lines, parse_version_string
 from parso.python.token import PythonTokenTypes
@@ -32,7 +30,7 @@ FSTRING_END = PythonTokenTypes.FSTRING_END
 def _get_token_list(string, version=None):
     # Load the current version.
     version_info = parse_version_string(version)
-    return list(tokenize.tokenize(string, version_info))
+    return list(tokenize.tokenize(string, version_info=version_info))
 
 
 def test_end_pos_one_line():
@@ -109,7 +107,7 @@ def test_tokenize_multiline_I():
     fundef = '''""""\n'''
     token_list = _get_token_list(fundef)
     assert token_list == [PythonToken(ERRORTOKEN, '""""\n', (1, 0), ''),
-                          PythonToken(ENDMARKER ,       '', (2, 0), '')]
+                          PythonToken(ENDMARKER, '', (2, 0), '')]
 
 
 def test_tokenize_multiline_II():
@@ -118,7 +116,7 @@ def test_tokenize_multiline_II():
     fundef = '''""""'''
     token_list = _get_token_list(fundef)
     assert token_list == [PythonToken(ERRORTOKEN, '""""', (1, 0), ''),
-                          PythonToken(ENDMARKER,      '', (1, 4), '')]
+                          PythonToken(ENDMARKER, '', (1, 4), '')]
 
 
 def test_tokenize_multiline_III():
@@ -127,7 +125,7 @@ def test_tokenize_multiline_III():
     fundef = '''""""\n\n'''
     token_list = _get_token_list(fundef)
     assert token_list == [PythonToken(ERRORTOKEN, '""""\n\n', (1, 0), ''),
-                          PythonToken(ENDMARKER,          '', (3, 0), '')]
+                          PythonToken(ENDMARKER, '', (3, 0), '')]
 
 
 def test_identifier_contains_unicode():
@@ -137,12 +135,7 @@ def test_identifier_contains_unicode():
     ''')
     token_list = _get_token_list(fundef)
     unicode_token = token_list[1]
-    if sys.version_info.major >= 3:
-        assert unicode_token[0] == NAME
-    else:
-        # Unicode tokens in Python 2 seem to be identified as operators.
-        # They will be ignored in the parser, that's ok.
-        assert unicode_token[0] == ERRORTOKEN
+    assert unicode_token[0] == NAME
 
 
 def test_quoted_strings():
@@ -185,19 +178,16 @@ def test_ur_literals():
             assert typ == NAME
 
     check('u""')
-    check('ur""', is_literal=not sys.version_info.major >= 3)
-    check('Ur""', is_literal=not sys.version_info.major >= 3)
-    check('UR""', is_literal=not sys.version_info.major >= 3)
+    check('ur""', is_literal=False)
+    check('Ur""', is_literal=False)
+    check('UR""', is_literal=False)
     check('bR""')
-    # Starting with Python 3.3 this ordering is also possible.
-    if sys.version_info.major >= 3:
-        check('Rb""')
+    check('Rb""')
 
-    # Starting with Python 3.6 format strings where introduced.
-    check('fr""', is_literal=sys.version_info >= (3, 6))
-    check('rF""', is_literal=sys.version_info >= (3, 6))
-    check('f""', is_literal=sys.version_info >= (3, 6))
-    check('F""', is_literal=sys.version_info >= (3, 6))
+    check('fr""')
+    check('rF""')
+    check('f""')
+    check('F""')
 
 
 def test_error_literal():
@@ -230,26 +220,36 @@ def test_endmarker_end_pos():
     check('a\\')
 
 
-xfail_py2 = dict(marks=[pytest.mark.xfail(sys.version_info[0] == 2, reason='Python 2')])
-
-
 @pytest.mark.parametrize(
     ('code', 'types'), [
         # Indentation
         (' foo', [INDENT, NAME, DEDENT]),
         ('  foo\n bar', [INDENT, NAME, NEWLINE, ERROR_DEDENT, NAME, DEDENT]),
         ('  foo\n bar \n baz', [INDENT, NAME, NEWLINE, ERROR_DEDENT, NAME,
-                                NEWLINE, ERROR_DEDENT, NAME, DEDENT]),
+                                NEWLINE, NAME, DEDENT]),
         (' foo\nbar', [INDENT, NAME, NEWLINE, DEDENT, NAME]),
 
         # Name stuff
         ('1foo1', [NUMBER, NAME]),
-        pytest.param(
-            u'மெல்லினம்', [NAME],
-            **xfail_py2),
-        pytest.param(u'²', [ERRORTOKEN], **xfail_py2),
-        pytest.param(u'ä²ö', [NAME, ERRORTOKEN, NAME], **xfail_py2),
-        pytest.param(u'ää²¹öö', [NAME, ERRORTOKEN, NAME], **xfail_py2),
+        ('மெல்லினம்', [NAME]),
+        ('²', [ERRORTOKEN]),
+        ('ä²ö', [NAME, ERRORTOKEN, NAME]),
+        ('ää²¹öö', [NAME, ERRORTOKEN, NAME]),
+        (' \x00a', [INDENT, ERRORTOKEN, NAME, DEDENT]),
+        (dedent('''\
+            class BaseCache:
+                    a
+                def
+                    b
+                def
+                    c
+            '''), [NAME, NAME, OP, NEWLINE, INDENT, NAME, NEWLINE,
+                   ERROR_DEDENT, NAME, NEWLINE, INDENT, NAME, NEWLINE, DEDENT,
+                   NAME, NEWLINE, INDENT, NAME, NEWLINE, DEDENT, DEDENT]),
+        ('  )\n foo', [INDENT, OP, NEWLINE, ERROR_DEDENT, NAME, DEDENT]),
+        ('a\n b\n  )\n c', [NAME, NEWLINE, INDENT, NAME, NEWLINE, INDENT, OP,
+                            NEWLINE, DEDENT, NAME, DEDENT]),
+        (' 1 \\\ndef', [INDENT, NUMBER, NAME, DEDENT]),
     ]
 )
 def test_token_types(code, types):
@@ -258,7 +258,7 @@ def test_token_types(code, types):
 
 
 def test_error_string():
-    t1, newline, endmarker = _get_token_list(' "\n')
+    indent, t1, newline, token, endmarker = _get_token_list(' "\n')
     assert t1.type == ERRORTOKEN
     assert t1.prefix == ' '
     assert t1.string == '"'
@@ -319,16 +319,18 @@ def test_brackets_no_indentation():
 
 
 def test_form_feed():
-    error_token, endmarker = _get_token_list(dedent('''\
+    indent, error_token, dedent_, endmarker = _get_token_list(dedent('''\
         \f"""'''))
     assert error_token.prefix == '\f'
     assert error_token.string == '"""'
     assert endmarker.prefix == ''
+    assert indent.type == INDENT
+    assert dedent_.type == DEDENT
 
 
 def test_carriage_return():
     lst = _get_token_list(' =\\\rclass')
-    assert [t.type for t in lst] == [INDENT, OP, DEDENT, NAME, ENDMARKER]
+    assert [t.type for t in lst] == [INDENT, OP, NAME, DEDENT, ENDMARKER]
 
 
 def test_backslash():
@@ -339,6 +341,7 @@ def test_backslash():
 
 @pytest.mark.parametrize(
     ('code', 'types'), [
+        # f-strings
         ('f"', [FSTRING_START]),
         ('f""', [FSTRING_START, FSTRING_END]),
         ('f" {}"', [FSTRING_START, FSTRING_STRING, OP, OP, FSTRING_END]),
@@ -394,8 +397,8 @@ def test_backslash():
         ]),
     ]
 )
-def test_fstring(code, types, version_ge_py36):
-    actual_types = [t.type for t in _get_token_list(code, version_ge_py36)]
+def test_fstring_token_types(code, types, each_version):
+    actual_types = [t.type for t in _get_token_list(code, each_version)]
     assert types + [ENDMARKER] == actual_types
 
 
@@ -414,3 +417,13 @@ def test_fstring(code, types, version_ge_py36):
 def test_fstring_assignment_expression(code, types, version_ge_py38):
     actual_types = [t.type for t in _get_token_list(code, version_ge_py38)]
     assert types + [ENDMARKER] == actual_types
+
+
+def test_fstring_end_error_pos(version_ge_py38):
+    f_start, f_string, bracket, f_end, endmarker = \
+        _get_token_list('f" { "', version_ge_py38)
+    assert f_start.start_pos == (1, 0)
+    assert f_string.start_pos == (1, 2)
+    assert bracket.start_pos == (1, 3)
+    assert f_end.start_pos == (1, 5)
+    assert endmarker.start_pos == (1, 6)

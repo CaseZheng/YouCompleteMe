@@ -158,14 +158,6 @@ def _MatchingSemanticTrigger( line_value, start_codepoint, column_codepoint,
   return None
 
 
-def _MatchesSemanticTrigger( line_value, start_codepoint, column_codepoint,
-                             trigger_list ):
-  return _MatchingSemanticTrigger( line_value,
-                                   start_codepoint,
-                                   column_codepoint,
-                                   trigger_list ) is not None
-
-
 def _PrepareTrigger( trigger ):
   trigger = ToUnicode( trigger )
   if trigger.startswith( TRIGGER_REGEX_PREFIX ):
@@ -201,9 +193,11 @@ DEFAULT_FILETYPE_TRIGGERS = {
   ( 'd,'
     'elixir,'
     'go,'
+    'gdscript,'
     'groovy,'
     'java,'
     'javascript,'
+    'javascriptreact,'
     'julia,'
     'perl6,'
     'python,'
@@ -232,7 +226,7 @@ def GetFileContents( request_data, filename ):
 
   try:
     return ToUnicode( ReadFile( filename ) )
-  except IOError:
+  except ( OSError, UnicodeError ):
     LOGGER.exception( 'Error reading file %s', filename )
     return ''
 

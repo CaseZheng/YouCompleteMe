@@ -1,11 +1,12 @@
 {
+  "$schema": "https://puremourning.github.io/vimspector/schema/vimspector.schema.json",
   "configurations": {
     "python - launch pytest": {
       "adapter": "debugpy",
       "variables": [
         {
           "python": {
-            "shell": "/bin/bash -c 'if [ -z \"${dollar}VIRTUAL_ENV\" ]; then echo $$(which python); else echo \"${dollar}VIRTUAL_ENV/bin/python\"; fi'"
+            "shell": "/bin/bash -c 'if [ -z \"${dollar}VIRTUAL_ENV\" ]; then echo $$(which python3); else echo \"${dollar}VIRTUAL_ENV/bin/python\"; fi'"
           }
         },
         {
@@ -24,7 +25,6 @@
         "request": "launch",
 
         "cwd": "${workspaceRoot}",
-        "stopOnEntry": true,
         "console": "integratedTerminal",
         "justMyCode": true,
 
@@ -42,6 +42,12 @@
           "LD_LIBRARY_PATH": "${workspaceRoot}/third_party/clang/lib",
           "YCM_TEST_NO_RETRY": "1"
         }
+      }
+    },
+    "python - attach": {
+      "adapter": "multi-session",
+      "configuration": {
+        "request": "attach"
       }
     }
   }

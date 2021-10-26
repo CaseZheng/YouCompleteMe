@@ -16,15 +16,10 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-"""This test is for utilites used in clangd."""
+"""This test is for utilities used in clangd."""
 
-from __future__ import print_function
-from __future__ import unicode_literals
-from __future__ import division
-from __future__ import absolute_import
-
-from hamcrest import assert_that, equal_to
 from unittest.mock import patch
+from hamcrest import assert_that, equal_to
 from ycmd import handlers
 from ycmd.completers.cpp import clangd_completer
 from ycmd.completers.language_server.language_server_completer import (
@@ -95,8 +90,8 @@ def ClangdCompleter_GetClangdCommand_CustomBinary_test():
         side_effect = [ None,
                         ( 5, 0, 0 ),
                         clangd_completer.MIN_SUPPORTED_VERSION,
-                        ( 10, 0, 0 ),
-                        ( 10, 10, 10 ),
+                        ( 12, 0, 0 ),
+                        ( 12, 10, 10 ),
                         ( 100, 100, 100 ) ] )
 def ClangdCompleter_CheckClangdVersion_test( *args ):
   assert_that( clangd_completer.CheckClangdVersion( 'clangd' ),
@@ -246,3 +241,8 @@ def ClangdCompleter_StartServer_Fails_test( app ):
                      ) )
       assert_that( resp.status_code, equal_to( 200 ) )
       shutdown.assert_called()
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

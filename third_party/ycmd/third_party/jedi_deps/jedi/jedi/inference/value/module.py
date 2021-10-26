@@ -1,7 +1,7 @@
-import re
 import os
+from pathlib import Path
+from typing import Optional
 
-from jedi import debug
 from jedi.inference.cache import inference_state_method_cache
 from jedi.inference.names import AbstractNameDefinition, ModuleName
 from jedi.inference.filters import GlobalNameFilter, ParserTreeFilter, DictFilter, MergedFilter
@@ -18,7 +18,7 @@ class _ModuleAttributeName(AbstractNameDefinition):
     """
     For module attributes like __file__, __str__ and so on.
     """
-    api_type = u'instance'
+    api_type = 'instance'
 
     def __init__(self, parent_module, string_name, string_value=None):
         self.parent_context = parent_module
@@ -28,42 +28,13 @@ class _ModuleAttributeName(AbstractNameDefinition):
     def infer(self):
         if self._string_value is not None:
             s = self._string_value
-            if self.parent_context.inference_state.environment.version_info.major == 2 \
-                    and not isinstance(s, bytes):
-                s = s.encode('utf-8')
             return ValueSet([
                 create_simple_object(self.parent_context.inference_state, s)
             ])
         return compiled.get_string_value_set(self.parent_context.inference_state)
 
 
-def iter_module_names(inference_state, paths):
-    # Python modules/packages
-    for n in inference_state.compiled_subprocess.list_module_names(paths):
-        yield n
-
-    for path in paths:
-        try:
-            dirs = os.listdir(path)
-        except OSError:
-            # The file might not exist or reading it might lead to an error.
-            debug.warning("Not possible to list directory: %s", path)
-            continue
-        for name in dirs:
-            # Namespaces
-            if os.path.isdir(os.path.join(path, name)):
-                # pycache is obviously not an interestin namespace. Also the
-                # name must be a valid identifier.
-                # TODO use str.isidentifier, once Python 2 is removed
-                if name != '__pycache__' and not re.search(r'\W|^\d', name):
-                    yield name
-            # Stub files
-            if name.endswith('.pyi'):
-                if name != '__init__.pyi':
-                    yield name[:-4]
-
-
-class SubModuleDictMixin(object):
+class SubModuleDictMixin:
     @inference_state_method_cache()
     def sub_modules_dict(self):
         """
@@ -72,7 +43,9 @@ class SubModuleDictMixin(object):
         """
         names = {}
         if self.is_package():
-            mods = iter_module_names(self.inference_state, self.py__path__())
+            mods = self.inference_state.compiled_subprocess.iter_module_names(
+                self.py__path__()
+            )
             for name in mods:
                 # It's obviously a relative import to the current module.
                 names[name] = SubModuleName(self.as_context(), name)
@@ -95,11 +68,10 @@ class ModuleMixin(SubModuleDictMixin):
         )
         yield DictFilter(self.sub_modules_dict())
         yield DictFilter(self._module_attributes_dict())
-        for star_filter in self.iter_star_filters():
-            yield star_filter
+        yield from self.iter_star_filters()
 
     def py__class__(self):
-        c, = values_from_qualified_names(self.inference_state, u'types', u'ModuleType')
+        c, = values_from_qualified_names(self.inference_state, 'types', 'ModuleType')
         return c
 
     def is_module(self):
@@ -108,37 +80,26 @@ class ModuleMixin(SubModuleDictMixin):
     def is_stub(self):
         return False
 
-    @property
+    @property  # type: ignore[misc]
     @inference_state_method_cache()
     def name(self):
-        return self._module_name_class(self, self._string_name)
-
-    @property
-    def _string_name(self):
-        """ This is used for the goto functions. """
-        # TODO It's ugly that we even use this, the name is usually well known
-        # ahead so just pass it when create a ModuleValue.
-        if self._path is None:
-            return ''  # no path -> empty name
-        else:
-            sep = (re.escape(os.path.sep),) * 2
-            r = re.search(r'([^%s]*?)(%s__init__)?(\.pyi?|\.so)?$' % sep, self._path)
-            # Remove PEP 3149 names
-            return re.sub(r'\.[a-z]+-\d{2}[mud]{0,3}$', '', r.group(1))
+        return self._module_name_class(self, self.string_names[-1])
 
     @inference_state_method_cache()
     def _module_attributes_dict(self):
         names = ['__package__', '__doc__', '__name__']
         # All the additional module attributes are strings.
         dct = dict((n, _ModuleAttributeName(self, n)) for n in names)
-        file = self.py__file__()
-        if file is not None:
-            dct['__file__'] = _ModuleAttributeName(self, '__file__', file)
+        path = self.py__file__()
+        if path is not None:
+            dct['__file__'] = _ModuleAttributeName(self, '__file__', str(path))
         return dct
 
     def iter_star_filters(self):
         for star_module in self.star_imports():
-            yield next(star_module.get_filters())
+            f = next(star_module.get_filters(), None)
+            assert f is not None
+            yield f
 
     # I'm not sure if the star import cache is really that effective anymore
     # with all the other really fast import caches. Recheck. Also we would need
@@ -174,50 +135,53 @@ class ModuleMixin(SubModuleDictMixin):
 
 
 class ModuleValue(ModuleMixin, TreeValue):
-    api_type = u'module'
+    api_type = 'module'
 
     def __init__(self, inference_state, module_node, code_lines, file_io=None,
                  string_names=None, is_package=False):
-        super(ModuleValue, self).__init__(
+        super().__init__(
             inference_state,
             parent_context=None,
             tree_node=module_node
         )
         self.file_io = file_io
         if file_io is None:
-            self._path = None
+            self._path: Optional[Path] = None
         else:
-            self._path = file_io.path
+            self._path = Path(file_io.path)
         self.string_names = string_names  # Optional[Tuple[str, ...]]
         self.code_lines = code_lines
         self._is_package = is_package
 
     def is_stub(self):
-        if self._path is not None and self._path.endswith('.pyi'):
+        if self._path is not None and self._path.suffix == '.pyi':
             # Currently this is the way how we identify stubs when e.g. goto is
             # used in them. This could be changed if stubs would be identified
             # sooner and used as StubModuleValue.
             return True
-        return super(ModuleValue, self).is_stub()
+        return super().is_stub()
 
     def py__name__(self):
         if self.string_names is None:
             return None
         return '.'.join(self.string_names)
 
-    def py__file__(self):
+    def py__file__(self) -> Optional[Path]:
         """
         In contrast to Python's __file__ can be None.
         """
         if self._path is None:
             return None
 
-        return os.path.abspath(self._path)
+        return self._path.absolute()
 
     def is_package(self):
         return self._is_package
 
     def py__package__(self):
+        if self.string_names is None:
+            return []
+
         if self._is_package:
             return self.string_names
         return self.string_names[:-1]
@@ -260,7 +224,7 @@ class ModuleValue(ModuleMixin, TreeValue):
 
     def __repr__(self):
         return "<%s: %s@%s-%s is_stub=%s>" % (
-            self.__class__.__name__, self._string_name,
+            self.__class__.__name__, self.py__name__(),
             self.tree_node.start_pos[0], self.tree_node.end_pos[0],
             self.is_stub()
         )

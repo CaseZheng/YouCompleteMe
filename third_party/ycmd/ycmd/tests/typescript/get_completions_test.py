@@ -59,7 +59,7 @@ def RunTest( app, test ):
     } )
   )
 
-  print( 'completer response: {0}'.format( pprint.pformat( response.json ) ) )
+  print( f'completer response: { pprint.pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -353,3 +353,8 @@ def GetCompletions_TypeScriptReact_DefaultTriggers_test( app ):
       } )
     }
   } )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

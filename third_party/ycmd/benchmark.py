@@ -27,8 +27,6 @@ def BuildYcmdLibsAndRunBenchmark( args, extra_args ):
   build_cmd = [
     sys.executable,
     p.join( DIR_OF_THIS_SCRIPT, 'build.py' ),
-    '--clang-completer',
-    '--no-regex'
   ] + extra_args
 
   os.environ[ 'YCM_BENCHMARK' ] = '1'

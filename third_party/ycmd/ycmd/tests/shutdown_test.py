@@ -19,16 +19,13 @@ from hamcrest import assert_that, equal_to
 from threading import Event
 import time
 import requests
+import pytest
 
 from ycmd.tests.client_test import Client_test
 from ycmd.utils import StartThread
 
-# Time to wait for all the servers to shutdown. Tweak for the CI environment.
-#
-# NOTE: The timeout is 2 minutes. That is a long time, but the java sub-server
-# (jdt.ls) takes a _long time_ to finally actually shut down. This is because it
-# is based on eclipse, which must do whatever eclipse must do when it shuts down
-# its workspace.
+# Time to wait (int seconds) for all the servers to shutdown. Tweak for the CI
+# environment.
 SUBSERVER_SHUTDOWN_TIMEOUT = 120
 
 
@@ -39,20 +36,26 @@ class Shutdown_test( Client_test ):
     self.Start()
     self.AssertServersAreRunning()
 
-    response = self.PostRequest( 'shutdown' )
-    self.AssertResponse( response )
-    assert_that( response.json(), equal_to( True ) )
+    try:
+      response = self.PostRequest( 'shutdown' )
+      response.raise_for_status()
+      self.AssertResponse( response )
+      assert_that( response.json(), equal_to( True ) )
+    except requests.exceptions.ConnectionError:
+      pass
+
     self.AssertServersShutDown( timeout = SUBSERVER_SHUTDOWN_TIMEOUT )
     self.AssertLogfilesAreRemoved()
 
 
+  @pytest.mark.valgrind_skip
   @Client_test.CaptureLogfiles
   def FromHandlerWithSubservers_test( self ):
     self.Start()
 
-    filetypes = [ 'cs',
+    filetypes = [ 'cpp',
+                  'cs',
                   'go',
-                  'java',
                   'javascript',
                   'typescript',
                   'rust' ]
@@ -60,9 +63,14 @@ class Shutdown_test( Client_test ):
       self.StartSubserverForFiletype( filetype )
     self.AssertServersAreRunning()
 
-    response = self.PostRequest( 'shutdown' )
-    self.AssertResponse( response )
-    assert_that( response.json(), equal_to( True ) )
+    try:
+      response = self.PostRequest( 'shutdown' )
+      response.raise_for_status()
+      self.AssertResponse( response )
+      assert_that( response.json(), equal_to( True ) )
+    except requests.exceptions.ConnectionError:
+      pass
+
     self.AssertServersShutDown( timeout = SUBSERVER_SHUTDOWN_TIMEOUT )
     self.AssertLogfilesAreRemoved()
 
@@ -76,6 +84,7 @@ class Shutdown_test( Client_test ):
     self.AssertLogfilesAreRemoved()
 
 
+  @pytest.mark.valgrind_skip
   @Client_test.CaptureLogfiles
   def FromWatchdogWithSubservers_test( self ):
     all_servers_are_running = Event()
@@ -94,9 +103,9 @@ class Shutdown_test( Client_test ):
     StartThread( KeepServerAliveInAnotherThread )
 
     try:
-      filetypes = [ 'cs',
+      filetypes = [ 'cpp',
+                    'cs',
                     'go',
-                    'java',
                     'javascript',
                     'typescript',
                     'rust' ]
@@ -108,3 +117,8 @@ class Shutdown_test( Client_test ):
 
     self.AssertServersShutDown( timeout = SUBSERVER_SHUTDOWN_TIMEOUT + 10 )
     self.AssertLogfilesAreRemoved()
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

@@ -9,7 +9,6 @@ names in a module, but pretty much an arbitrary string.
 """
 import re
 
-from jedi._compatibility import unicode
 from jedi.inference.names import AbstractArbitraryName
 from jedi.inference.helpers import infer_call_of_leaf
 from jedi.api.classes import Completion
@@ -19,7 +18,7 @@ _sentinel = object()
 
 
 class StringName(AbstractArbitraryName):
-    api_type = u'string'
+    api_type = 'string'
     is_value_name = False
 
 
@@ -65,7 +64,7 @@ def _completions_for_dicts(inference_state, dicts, literal_string, cut_end_quote
 
 
 def _create_repr_string(literal_string, dict_key):
-    if not isinstance(dict_key, (unicode, bytes)) or not literal_string:
+    if not isinstance(dict_key, (str, bytes)) or not literal_string:
         return repr(dict_key)
 
     r = repr(dict_key)
@@ -93,17 +92,16 @@ def _get_string_prefix_and_quote(string):
     return match.group(1), match.group(2)
 
 
-def _get_string_quote(string):
-    return _get_string_prefix_and_quote(string)[1]
-
-
 def _matches_quote_at_position(code_lines, quote, position):
     string = code_lines[position[0] - 1][position[1]:position[1] + len(quote)]
     return string == quote
 
 
 def get_quote_ending(string, code_lines, position, invert_result=False):
-    quote = _get_string_quote(string)
+    _, quote = _get_string_prefix_and_quote(string)
+    if quote is None:
+        return ''
+
     # Add a quote only if it's not already there.
     if _matches_quote_at_position(code_lines, quote, position) != invert_result:
         return ''

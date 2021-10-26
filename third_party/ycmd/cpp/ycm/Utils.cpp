@@ -17,63 +17,28 @@
 
 #include "Utils.h"
 
-#include <boost/filesystem.hpp>
-#include <boost/filesystem/fstream.hpp>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <limits>
+#include <string>
+#include <vector>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace YouCompleteMe {
 
-std::string ReadUtf8File( const fs::path &filepath ) {
-  // fs::is_empty() can throw basic_filesystem_error< Path >
-  // in case filepath doesn't exist, or
-  // in case filepath's file_status is "other".
-  // "other" in this case means everything that is not a regular file,
-  // directory or a symlink.
-  // For the algorithm check:
-  // https://insanecoding.blogspot.com/2011/11/how-to-read-in-file-in-c.html
-  std::string contents;
+std::vector< std::string > ReadUtf8File( const fs::path &filepath ) {
+  std::vector< std::string > contents;
   if ( !fs::is_empty( filepath ) && fs::is_regular_file( filepath ) ) {
-    fs::ifstream file( filepath, std::ios::in | std::ios::binary | std::ios::ate );
-    const size_t size = static_cast< std::string::size_type >( file.tellg() );
-    contents.resize( size );
-    file.seekg( 0, std::ios::beg );
-    file.read( &contents[ 0 ], static_cast< std::streamsize >( size ) );
-  }
-  return contents;
-}
-
-
-// Cannot use boost::filesystem::weakly_canonical because it raises an exception
-// for non-existing paths in some cases.
-fs::path NormalizePath( const fs::path &filepath, const fs::path &base ) {
-  // Absolutize the path relative to |base|.
-  fs::path absolute_path( fs::absolute( filepath, base ) );
-  fs::path normalized_path( absolute_path );
-
-  // Canonicalize the existing part of the path.
-  fs::path::iterator component( absolute_path.end() );
-  while ( !exists( normalized_path ) && !normalized_path.empty() ) {
-    normalized_path.remove_filename();
-    --component;
-  }
-  if ( !normalized_path.empty() ) {
-    normalized_path = fs::canonical( normalized_path );
-  }
-
-  // Remove '.' and '..' in the remaining part.
-  for ( ; component != absolute_path.end(); ++component ) {
-    if ( *component == ".." ) {
-      normalized_path = normalized_path.parent_path();
-    } else if ( *component != "." ) {
-      normalized_path /= *component;
+    std::string line;
+    for( std::ifstream file( filepath.string(),
+                             std::ios::in | std::ios::binary );
+         std::getline( file, line ); ) {
+      contents.push_back( std::move( line ) );
     }
   }
-
-  // Finally, convert slashes into backslashes on Windows.
-  return normalized_path.make_preferred();
+  return contents;
 }
 
 } // namespace YouCompleteMe

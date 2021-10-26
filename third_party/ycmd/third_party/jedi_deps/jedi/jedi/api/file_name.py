@@ -1,22 +1,23 @@
 import os
 
-from jedi._compatibility import FileNotFoundError, force_unicode, scandir
 from jedi.api import classes
 from jedi.api.strings import StringName, get_quote_ending
-from jedi.api.helpers import fuzzy_match, start_match
+from jedi.api.helpers import match
 from jedi.inference.helpers import get_str_or_none
 
 
 class PathName(StringName):
-    api_type = u'path'
+    api_type = 'path'
 
 
-def complete_file_name(inference_state, module_context, start_leaf, string,
+def complete_file_name(inference_state, module_context, start_leaf, quote, string,
                        like_name, signatures_callback, code_lines, position, fuzzy):
     # First we want to find out what can actually be changed as a name.
     like_name_length = len(os.path.basename(string))
 
     addition = _get_string_additions(module_context, start_leaf)
+    if string.startswith('~'):
+        string = os.path.expanduser(string)
     if addition is None:
         return
     string = addition + string
@@ -34,21 +35,18 @@ def complete_file_name(inference_state, module_context, start_leaf, string,
             is_in_os_path_join = False
         else:
             string = to_be_added + string
-    base_path = os.path.join(inference_state.project._path, string)
+    base_path = os.path.join(inference_state.project.path, string)
     try:
-        listed = sorted(scandir(base_path), key=lambda e: e.name)
+        listed = sorted(os.scandir(base_path), key=lambda e: e.name)
         # OSError: [Errno 36] File name too long: '...'
     except (FileNotFoundError, OSError):
         return
+    quote_ending = get_quote_ending(quote, code_lines, position)
     for entry in listed:
         name = entry.name
-        if fuzzy:
-            match = fuzzy_match(name, must_start_with)
-        else:
-            match = start_match(name, must_start_with)
-        if match:
+        if match(name, must_start_with, fuzzy=fuzzy):
             if is_in_os_path_join or not entry.is_dir():
-                name += get_quote_ending(start_leaf.value, code_lines, position)
+                name += quote_ending
             else:
                 name += os.path.sep
 
@@ -95,7 +93,7 @@ def _add_strings(context, nodes, add_slash=False):
             return None
         if not first and add_slash:
             string += os.path.sep
-        string += force_unicode(s)
+        string += s
         first = False
     return string
 

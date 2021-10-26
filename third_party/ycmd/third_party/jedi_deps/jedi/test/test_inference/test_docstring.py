@@ -3,7 +3,6 @@ Testing of docstring related issues and especially ``jedi.docstrings``.
 """
 
 import os
-import sys
 from textwrap import dedent
 
 import pytest
@@ -24,11 +23,6 @@ except ImportError:
     numpy_unavailable = True
 else:
     numpy_unavailable = False
-
-if sys.version_info.major == 2:
-    # In Python 2 there's an issue with tox/docutils that makes the tests fail,
-    # Python 2 is soon end-of-life, so just don't support numpydoc for it anymore.
-    numpydoc_unavailable = True
 
 
 def test_function_doc(Script):
@@ -163,7 +157,7 @@ def test_docstring_params_formatting(Script):
     assert defs[0].docstring() == 'func(param1, param2, param3)'
 
 
-def test_import_function_docstring(Script, skip_pre_python35):
+def test_import_function_docstring(Script):
     code = "from stub_folder import with_stub; with_stub.stub_function"
     path = os.path.join(test_dir, 'completion', 'import_function_docstring.py')
     c, = Script(code, path=path).complete()
@@ -211,6 +205,24 @@ def test_numpydoc_parameters_set_of_values():
     assert 'isupper' in names
     assert 'capitalize' in names
     assert 'numerator' in names
+
+@pytest.mark.skipif(numpydoc_unavailable,
+                    reason='numpydoc module is unavailable')
+def test_numpydoc_parameters_set_single_value():
+    """
+    This is found in numpy  masked-array I'm not too sure what this means but should not crash
+    """
+    s = dedent('''
+    def foobar(x, y):
+        """
+        Parameters
+        ----------
+        x : {var}, optional
+        """
+        x.''')
+    names = [c.name for c in jedi.Script(s).complete()]
+    # just don't crash
+    assert names == []
 
 
 @pytest.mark.skipif(numpydoc_unavailable,
@@ -422,6 +434,39 @@ def test_decorator(Script):
     assert d.docstring(raw=True) == 'Nice docstring'
 
 
+def test_method_decorator(Script):
+    code = dedent('''
+        def decorator(func):
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                """wrapper docstring"""
+                return func(*args, **kwargs)
+            return wrapper
+
+        class Foo():
+            @decorator
+            def check_user(self, f):
+                """Nice docstring"""
+                pass
+
+        Foo().check_user''')
+
+    d, = Script(code).infer()
+    assert d.docstring() == 'wrapper(f)\n\nNice docstring'
+
+
+def test_partial(Script):
+    code = dedent('''
+        def foo():
+            'x y z'
+        from functools import partial
+        x = partial(foo)
+        x''')
+
+    for p in Script(code).infer():
+        assert p.docstring(raw=True) == 'x y z'
+
+
 def test_basic_str_init_signature(Script, disable_typeshed):
     # See GH #1414 and GH #1426
     code = dedent('''
@@ -445,3 +490,20 @@ def test_doctest_result_completion(Script):
     c1, c2 = Script(code).complete(line=5)
     assert c1.complete == 'ng'
     assert c2.complete == 'ng_else'
+
+
+def test_doctest_function_start(Script):
+    code = dedent('''\
+        def test(a, b):
+            """
+            From GH #1585
+
+            >>> a = {}
+            >>> b = {}
+            >>> get_remainder(a, b) == {
+            ...     "foo": 10, "bar": 7
+            ... }
+            """
+            return
+    ''')
+    assert Script(code).complete(7, 8)

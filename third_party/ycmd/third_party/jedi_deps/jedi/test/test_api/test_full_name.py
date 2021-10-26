@@ -1,5 +1,5 @@
 """
-Tests for :attr:`.BaseDefinition.full_name`.
+Tests for :attr:`.BaseName.full_name`.
 
 There are three kinds of test:
 
@@ -14,11 +14,11 @@ There are three kinds of test:
 """
 
 import textwrap
+from unittest import TestCase
 
 import pytest
 
 import jedi
-from ..helpers import TestCase
 
 
 class MixinTestFullName(object):
@@ -46,9 +46,6 @@ class TestFullNameWithGotoDefinitions(MixinTestFullName, TestCase):
     operation = 'infer'
 
     def test_tuple_mapping(self):
-        if self.environment.version_info.major == 2:
-            pytest.skip('Python 2 also yields None.')
-
         self.check("""
         import re
         any_re = re.compile('.*')
@@ -97,9 +94,10 @@ def test_sub_module(Script, jedi_path):
     path.
     """
     sys_path = [jedi_path]
-    defs = Script('from jedi.api import classes; classes', sys_path=sys_path).infer()
+    project = jedi.Project('.', sys_path=sys_path)
+    defs = Script('from jedi.api import classes; classes', project=project).infer()
     assert [d.full_name for d in defs] == ['jedi.api.classes']
-    defs = Script('import jedi.api; jedi.api', sys_path=sys_path).infer()
+    defs = Script('import jedi.api; jedi.api', project=project).infer()
     assert [d.full_name for d in defs] == ['jedi.api']
 
 
@@ -112,10 +110,18 @@ def test_os_path(Script):
 
 def test_os_issues(Script):
     """Issue #873"""
-    assert [c.name for c in Script('import os\nos.nt''').complete()] == ['nt']
+    # nt is not found, because it's deleted
+    assert [c.name for c in Script('import os\nos.nt''').complete()] == []
 
 
 def test_param_name(Script):
     name, = Script('class X:\n def foo(bar): bar''').goto()
     assert name.type == 'param'
     assert name.full_name is None
+
+
+def test_variable_in_func(Script):
+    names = Script('def f(): x = 3').get_names(all_scopes=True)
+    x = names[-1]
+    assert x.name == 'x'
+    assert x.full_name == '__main__.f.x'

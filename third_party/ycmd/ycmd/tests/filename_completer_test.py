@@ -108,17 +108,17 @@ def FilenameCompleter_Completion( app,
       ( ( 'Qt',    '[Dir]' ),
         ( 'QtGui', '[Dir]' ) ) ),
     ( 'const char* c = "~/',
-      { 'HOME': DATA_DIR },
+      { 'HOME': DATA_DIR , 'USERPROFILE': DATA_DIR },
       ( ( 'dir with spaces (x64)', '[Dir]' ),
         ( 'foo漢字.txt',           '[File]' ),
         ( 'test.cpp',              '[File]' ),
         ( 'test.hpp',              '[File]' ) ) ),
     ( 'const char* c = "~/dir with spaces (x64)/',
-      { 'HOME': DATA_DIR },
+      { 'HOME': DATA_DIR, 'USERPROFILE': DATA_DIR },
       ( ( 'Qt',    '[Dir]' ),
         ( 'QtGui', '[Dir]' ) ) ),
     ( 'const char* c = "~/dir with spaces (x64)/Qt/',
-      { 'HOME': DATA_DIR },
+      { 'HOME': DATA_DIR, 'USERPROFILE': DATA_DIR },
       ( ( 'QtGui', '[File]' ), ) ),
     ( 'const char* c = "dir with spaces (x64)/',
       {},
@@ -379,3 +379,8 @@ def FilenameCompleter_AllFiletypesBlacklisted_test( app ):
   results = app.post_json( '/completions',
                            completion_data ).json[ 'completions' ]
   assert_that( results, empty() )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

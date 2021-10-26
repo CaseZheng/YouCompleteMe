@@ -18,13 +18,16 @@
 #ifndef UTILS_H_KEPMRPBH
 #define UTILS_H_KEPMRPBH
 
-#include <boost/filesystem.hpp>
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <vector>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 namespace YouCompleteMe {
 
@@ -43,51 +46,56 @@ YCM_EXPORT inline char Lowercase( uint8_t ascii_character ) {
 }
 
 
-YCM_EXPORT inline std::string Lowercase( const std::string &text ) {
-  std::string result;
-  for ( auto ascii_character : text ) {
-    result.push_back( Lowercase( static_cast< uint8_t >( ascii_character ) ) );
-  }
+YCM_EXPORT inline std::string Lowercase( std::string_view text ) {
+  std::string result( text.size(), '\0' );
+  std::transform( text.begin(),
+                  text.end(),
+                  result.begin(),
+                  []( char c ) {
+                    return Lowercase( static_cast< uint8_t >( c ) );
+                  } );
   return result;
 }
 
 
 // Reads the entire contents of the specified file. If the file does not exist,
 // an exception is thrown.
-std::string ReadUtf8File( const fs::path &filepath );
+std::vector< std::string > ReadUtf8File( const fs::path &filepath );
 
 
-// Normalizes a path by making it absolute relative to |base|, resolving
-// symbolic links, removing '.' and '..' in the path, and converting slashes
-// into backslashes on Windows. Contrarily to boost::filesystem::canonical, this
-// works even if the file doesn't exist.
-YCM_EXPORT fs::path NormalizePath( const fs::path &filepath,
-                                   const fs::path &base = fs::current_path() );
-
-
-template <class Container, class Key>
+template <class Container, class Key, typename Value>
 typename Container::mapped_type &
 GetValueElseInsert( Container &container,
-                    const Key &key,
-                    typename Container::mapped_type &&value ) {
-  return container.insert(
-    typename Container::value_type( key, std::move( value ) ) ).first->second;
+                    Key&& key,
+                    Value&& value ) {
+  return container.try_emplace(
+    std::forward< Key >( key ), std::forward< Value >( value ) ).first->second;
 }
 
 
-template <class Container, class Key>
-bool ContainsKey( Container &container, const Key &key ) {
-  return container.find( key ) != container.end();
-}
+template<typename C, typename = void>
+struct is_associative : std::false_type {};
 
+template<typename C>
+struct is_associative<C, std::void_t<typename C::mapped_type>> : std::true_type {};
 
-template <class Container, class Key>
-typename Container::mapped_type
+template <class Container, class Key, class Ret>
+Ret
 FindWithDefault( Container &container,
                  const Key &key,
-                 const typename Container::mapped_type &value ) {
-  typename Container::const_iterator it = container.find( key );
-  return it != container.end() ? it->second : value;
+                 Ret&& value ) {
+  typename Container::const_iterator it = [ &key ]( auto&& c ) {
+    if constexpr ( is_associative<Container>::value ) {
+      return c.find( key );
+    } else {
+      return std::find_if( c.begin(), c.end(), [ &key ]( auto&& p ) {
+          return p.first == key; } );
+    }
+  }( container );
+  if ( it != container.end() ) {
+    return Ret{ it->second };
+  }
+  return std::move( value );
 }
 
 

@@ -25,12 +25,13 @@ import sys
 import tempfile
 import time
 import threading
-import chardet
 
 LOGGER = logging.getLogger( 'ycmd' )
 ROOT_DIR = os.path.normpath( os.path.join( os.path.dirname( __file__ ), '..' ) )
 DIR_OF_THIRD_PARTY = os.path.join( ROOT_DIR, 'third_party' )
 LIBCLANG_DIR = os.path.join( DIR_OF_THIRD_PARTY, 'clang', 'lib' )
+if hasattr( os, 'add_dll_directory' ):
+  os.add_dll_directory( LIBCLANG_DIR )
 
 
 from collections.abc import Mapping
@@ -81,12 +82,8 @@ CORE_OUTDATED_STATUS    = 7
 # doesn't get closed. So, a helper func.
 # Also, all files we read are UTF-8.
 def ReadFile( filepath ):
-  #with open( filepath, encoding = 'utf8' ) as f:
-  #  return f.read()
-  with open(filepath, 'rb') as f:
-    data = f.read()
-    dataEncode = chardet.detect(data)['encoding']
-    return data.decode(dataEncode).encode('utf8').decode('utf8')
+  with open( filepath, encoding = 'utf8' ) as f:
+    return f.read()
 
 
 # Returns a file object that can be used to replace sys.stdout or sys.stderr
@@ -160,11 +157,11 @@ def ByteOffsetToCodepointOffset( line_value, byte_offset ):
   """The API calls for byte offsets into the UTF-8 encoded version of the
   buffer. However, ycmd internally uses unicode strings. This means that
   when we need to walk 'characters' within the buffer, such as when checking
-  for semantic triggers and similar, we must use codepoint offets, rather than
+  for semantic triggers and similar, we must use codepoint offsets, rather than
   byte offsets.
 
-  This method converts the |byte_offset|, which is a utf-8 byte offset, into
-  a codepoint offset in the unicode string |line_value|."""
+  This method converts the |byte_offset|, which is a 1-based utf-8 byte offset,
+  into a 1-based codepoint offset in the unicode string |line_value|."""
 
   byte_line_value = ToBytes( line_value )
   return len( ToUnicode( byte_line_value[ : byte_offset - 1 ] ) ) + 1
@@ -174,12 +171,12 @@ def CodepointOffsetToByteOffset( unicode_line_value, codepoint_offset ):
   """The API calls for byte offsets into the UTF-8 encoded version of the
   buffer. However, ycmd internally uses unicode strings. This means that
   when we need to walk 'characters' within the buffer, such as when checking
-  for semantic triggers and similar, we must use codepoint offets, rather than
+  for semantic triggers and similar, we must use codepoint offsets, rather than
   byte offsets.
 
-  This method converts the |codepoint_offset| which is a unicode codepoint
-  offset into an byte offset into the utf-8 encoded bytes version of
-  |unicode_line_value|."""
+  This method converts the |codepoint_offset| which is a 1-based unicode
+  codepoint offset into a 1-based byte offset into the utf-8 encoded bytes
+  version of |unicode_line_value|."""
 
   # Should be a no-op, but in case someone passes a bytes instance.
   unicode_line_value = ToUnicode( unicode_line_value )
@@ -247,7 +244,7 @@ def GetExecutable( filename ):
   return None
 
 
-# Adapted from https://github.com/python/cpython/blob/v3.5.0/Lib/shutil.py#L1072
+# Adapted from https://github.com/python/cpython/blob/v3.6.0/Lib/shutil.py#L1087
 # to be backward compatible with Python2 and more consistent to our codebase.
 def FindExecutable( executable ):
   # If we're given a path with a directory part, look it up directly rather
@@ -269,6 +266,18 @@ def FindExecutable( executable ):
     if exe:
       return exe
   return None
+
+
+def FindExecutableWithFallback( executable_path, fallback ):
+  if executable_path:
+    executable_path = FindExecutable( ExpandVariablesInPath( executable_path ) )
+    if not executable_path:
+      # If the user told us to use a non-existing path, report an error.
+      # Don't attempt to be too clever about the fallback.
+      return None
+    return executable_path
+  else:
+    return fallback
 
 
 def ExecutableName( executable ):
@@ -297,8 +306,8 @@ def WaitUntilProcessIsTerminated( handle, timeout = 5 ):
   expiration = time.time() + timeout
   while True:
     if time.time() > expiration:
-      raise RuntimeError( 'Waited process to terminate for {0} seconds, '
-                          'aborting.'.format( timeout ) )
+      raise RuntimeError( f'Waited process to terminate for { timeout } '
+                          'seconds, aborting.' )
     if not ProcessIsRunning( handle ):
       return
     time.sleep( 0.1 )
@@ -361,11 +370,15 @@ def SafePopen( args, **kwargs ):
   return subprocess.Popen( args, **kwargs )
 
 
-# Shim for importlib.machinery.SourceFileLoader.
-# See upstream Python docs for info on what this does.
+# Read the link and don't ask questions. Python likes to make importing hard.
+# https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
 def LoadPythonSource( name, pathname ):
-  import importlib
-  return importlib.machinery.SourceFileLoader( name, pathname ).load_module()
+  import importlib.util
+  spec = importlib.util.spec_from_file_location( name, pathname )
+  module = importlib.util.module_from_spec( spec )
+  sys.modules[ spec.name ] = module
+  spec.loader.exec_module( module )
+  return module
 
 
 def SplitLines( contents ):
@@ -439,6 +452,10 @@ class HashableDict( Mapping ):
     return not self == other
 
 
+  def copy( self, **add_or_replace ):
+    return self.__class__( self, **add_or_replace )
+
+
 def ListDirectory( path ):
   try:
     # Path must be a Unicode string to get Unicode strings out of listdir.
@@ -481,8 +498,11 @@ def ImportAndCheckCore():
   """Checks if ycm_core library is compatible and returns with an exit
   status."""
   try:
-    LoadYcmCoreDependencies()
-    ycm_core = ImportCore()
+    try:
+      ycm_core = ImportCore()
+    except ImportError:
+      LoadYcmCoreDependencies()
+      ycm_core = ImportCore()
   except ImportError as error:
     message = str( error )
     if CORE_MISSING_ERROR_REGEX.match( message ):
@@ -515,10 +535,48 @@ def GetClangResourceDir():
 CLANG_RESOURCE_DIR = GetClangResourceDir()
 
 
-def AbsoluatePath( path, relative_to ):
-  """Returns a normalised, absoluate path to |path|. If |path| is relative, it
+def AbsolutePath( path, relative_to ):
+  """Returns a normalised, absolute path to |path|. If |path| is relative, it
   is resolved relative to |relative_to|."""
   if not os.path.isabs( path ):
     path = os.path.join( relative_to, path )
 
   return os.path.normpath( path )
+
+
+def UpdateDict( target, override ):
+  """Apply the updates in |override| to the dict |target|. This is like
+  dict.update, but recursive. i.e. if the existing element is a dict, then
+  override elements of the sub-dict rather than wholesale replacing.
+  e.g.
+  UpdateDict(
+    {
+      'outer': { 'inner': { 'key': 'oldValue', 'existingKey': True } }
+    },
+    {
+      'outer': { 'inner': { 'key': 'newValue' } },
+      'newKey': { 'newDict': True },
+    }
+  )
+  yields:
+    {
+      'outer': {
+        'inner': {
+           'key': 'newValue',
+           'existingKey': True
+        }
+      },
+      'newKey': { newDict: True }
+    }
+  """
+
+  for key, value in override.items():
+    current_value = target.get( key )
+    if not isinstance( current_value, Mapping ):
+      target[ key ] = value
+    elif isinstance( value, Mapping ):
+      target[ key ] = UpdateDict( current_value, value )
+    else:
+      target[ key ] = value
+
+  return target

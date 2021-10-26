@@ -21,6 +21,7 @@ from hamcrest import ( assert_that,
                        equal_to,
                        has_entries,
                        has_entry,
+                       has_items,
                        matches_regexp )
 from unittest.mock import patch
 import requests
@@ -73,7 +74,7 @@ def RunTest( app, test ):
     expect_errors = True
   )
 
-  print( 'completer response: {0}'.format( pprint.pformat( response.json ) ) )
+  print( f'completer response: { pprint.pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -97,6 +98,7 @@ def Subcommands_DefinedSubcommands_test( app ):
       'GetDoc',
       'GetType',
       'GoToReferences',
+      'GoToSymbol',
       'FixIt',
       'OrganizeImports',
       'RefactorRename',
@@ -160,6 +162,18 @@ def Subcommands_Format_WholeFile_Spaces_test( app ):
             ChunkMatcher( ' ',
                           LocationMatcher( filepath, 11,  6 ),
                           LocationMatcher( filepath, 11,  6 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 21,  1 ),
+                          LocationMatcher( filepath, 21,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 22,  1 ),
+                          LocationMatcher( filepath, 22,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 23,  1 ),
+                          LocationMatcher( filepath, 23,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 24,  1 ),
+                          LocationMatcher( filepath, 24,  2 ) ),
             ChunkMatcher( '    ',
                           LocationMatcher( filepath, 27,  1 ),
                           LocationMatcher( filepath, 27,  3 ) ),
@@ -237,6 +251,18 @@ def Subcommands_Format_WholeFile_Tabs_test( app ):
             ChunkMatcher( ' ',
                           LocationMatcher( filepath, 11,  6 ),
                           LocationMatcher( filepath, 11,  6 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 21,  1 ),
+                          LocationMatcher( filepath, 21,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 22,  1 ),
+                          LocationMatcher( filepath, 22,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 23,  1 ),
+                          LocationMatcher( filepath, 23,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 24,  1 ),
+                          LocationMatcher( filepath, 24,  2 ) ),
             ChunkMatcher( '\t',
                           LocationMatcher( filepath, 27,  1 ),
                           LocationMatcher( filepath, 27,  3 ) ),
@@ -315,6 +341,7 @@ def Subcommands_Format_Range_Spaces_test( app ):
 
 @IsolatedYcmd()
 def Subcommands_Format_Range_Tabs_test( app ):
+  WaitUntilCompleterServerReady( app, 'typescript' )
   filepath = PathToTestFile( 'test.ts' )
   RunTest( app, {
     'description': 'Formatting is applied on some part of the file '
@@ -360,6 +387,69 @@ def Subcommands_Format_Range_Tabs_test( app ):
             ChunkMatcher( '\t',
                           LocationMatcher( filepath, 11,  1 ),
                           LocationMatcher( filepath, 11,  3 ) ),
+          )
+        } ) )
+      } )
+    }
+  } )
+
+
+@IsolatedYcmd( { 'global_ycm_extra_conf':
+                 PathToTestFile( 'extra_confs', 'brace_on_same_line.py' ) } )
+def Subcommands_Format_ExtraConf_BraceOnSameLine_test( app ):
+  WaitUntilCompleterServerReady( app, 'typescript' )
+  filepath = PathToTestFile( 'extra_confs', 'func.ts' )
+  RunTest( app, {
+    'description': 'Format with an extra conf, braces on new line',
+    'request': {
+      'command': 'Format',
+      'filepath': filepath,
+      'options': {
+        'tab_size': 4,
+        'insert_spaces': True
+      }
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
+            ChunkMatcher( '    ',
+                          LocationMatcher( filepath,  2,  1 ),
+                          LocationMatcher( filepath,  2,  1 ) ),
+          )
+        } ) )
+      } )
+    }
+  } )
+
+
+@IsolatedYcmd( { 'global_ycm_extra_conf':
+                 PathToTestFile( 'extra_confs', 'brace_on_new_line.py' ) } )
+def Subcommands_Format_ExtraConf_BraceOnNewLine_test( app ):
+  WaitUntilCompleterServerReady( app, 'typescript' )
+  filepath = PathToTestFile( 'extra_confs', 'func.ts' )
+  RunTest( app, {
+    'description': 'Format with an extra conf, braces on new line',
+    'request': {
+      'command': 'Format',
+      'filepath': filepath,
+      'options': {
+        'tab_size': 4,
+        'insert_spaces': True
+      }
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
+            ChunkMatcher( matches_regexp( '\n?\n' ),
+                          LocationMatcher( filepath,  1, 19 ),
+                          LocationMatcher( filepath,  1, 20 ) ),
+            ChunkMatcher( '    ',
+                          LocationMatcher( filepath,  2,  1 ),
+                          LocationMatcher( filepath,  2,  1 ) ),
           )
         } ) )
       } )
@@ -595,6 +685,54 @@ def Subcommands_GoTo_Basic( app, goto_command ):
   } )
 
 
+@pytest.mark.parametrize( "req,rep", [
+  ( ( 'signatures.ts', 1, 1, 'no_arguments_no_return' ),
+    ( 'signatures.ts', 3, 1, 'no_arguments_no_return' ) ),
+
+  ( ( 'signatures.ts', 1, 1, 'ReturnValue' ),
+    [ ( 'signatures.ts', 6, 1, 'ReturnValue' ) ] ),
+
+  ( ( 'signatures.ts', 1, 1, 'Foo' ),
+    [ ( 'test.ts', 14, 5, 'foo' ),
+      ( 'test.ts', 2, 1, 'Foo' ) ] ),
+
+  ( ( 'signatures.ts', 1, 1, 'nothinghere' ), 'Symbol not found' )
+] )
+@SharedYcmd
+def Subcommands_GoToSymbol_test( app, req, rep ):
+  if isinstance( rep, tuple ):
+    expect = {
+      'response': requests.codes.ok,
+      'data': LocationMatcher( PathToTestFile( rep[ 0 ] ), *rep[ 1: ] )
+    }
+  elif isinstance( rep, list ):
+    # NOTE: We use has_items here because tsserver will include results from
+    # node_modules and all sorts of other random places.
+    expect = {
+      'response': requests.codes.ok,
+      'data': has_items( *[
+        LocationMatcher( PathToTestFile( r[ 0 ] ), *r[ 1: ] )
+          for r in rep
+      ] )
+    }
+  else:
+    expect = {
+      'response': requests.codes.internal_server_error,
+      'data': ErrorMatcher( RuntimeError, rep )
+    }
+
+  RunTest( app, {
+    'request': {
+      'command': 'GoToSymbol',
+      'arguments': [ req[ 3 ] ],
+      'line_num': req[ 1 ],
+      'column_num': req[ 2 ],
+      'filepath': PathToTestFile( req[ 0 ] ),
+    },
+    'expect': expect
+  } )
+
+
 @pytest.mark.parametrize( 'command', [ 'GoTo',
                                        'GoToDefinition',
                                        'GoToDeclaration' ] )
@@ -705,9 +843,9 @@ def Subcommands_FixIt_test( app ):
               ChunkMatcher(
                 matches_regexp(
                   '^\r?\n'
-                  '    nonExistingMethod\\(\\) {\r?\n'
-                  '        throw new Error\\("Method not implemented."\\);\r?\n'
-                  '    }$',
+                  '  nonExistingMethod\\(\\) {\r?\n'
+                  '      throw new Error\\("Method not implemented."\\);\r?\n'
+                  '  }$',
                 ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ) )
@@ -719,7 +857,7 @@ def Subcommands_FixIt_test( app ):
             'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp( '^\r?\n'
-                                '    nonExistingMethod: any;$' ),
+                                '  nonExistingMethod: any;$' ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ) )
             ),
@@ -730,7 +868,7 @@ def Subcommands_FixIt_test( app ):
             'chunks': contains_exactly(
               ChunkMatcher(
                 matches_regexp( '^\r?\n'
-                                '    \\[x: string\\]: any;$' ),
+                                '  \\[x: string\\]: any;$' ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ),
                 LocationMatcher( PathToTestFile( 'test.ts' ), 25, 12 ) )
             ),
@@ -959,3 +1097,8 @@ def Subcommands_StopServer_Timeout_test( app ):
                    has_entry( 'is_running', False )
                  ) )
                ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

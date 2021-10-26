@@ -31,7 +31,8 @@ from ycmd.tests.test_utils import ( BuildRequest,
                                     CombineRequest,
                                     ErrorMatcher,
                                     LocationMatcher,
-                                    MessageMatcher )
+                                    MessageMatcher,
+                                    WaitUntilCompleterServerReady )
 from ycmd.utils import ReadFile
 
 
@@ -69,7 +70,7 @@ def RunTest( app, test ):
     expect_errors = True
   )
 
-  print( 'completer response: {0}'.format( pprint.pformat( response.json ) ) )
+  print( f'completer response: { pprint.pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -93,6 +94,7 @@ def Subcommands_DefinedSubcommands_test( app ):
       'GetDoc',
       'GetType',
       'GoToReferences',
+      'GoToSymbol',
       'FixIt',
       'OrganizeImports',
       'RefactorRename',
@@ -150,6 +152,18 @@ def Subcommands_Format_WholeFile_Spaces_test( app ):
             ChunkMatcher( ' ',
                           LocationMatcher( filepath,  8,  6 ),
                           LocationMatcher( filepath,  8,  6 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 18,  1 ),
+                          LocationMatcher( filepath, 18,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 19,  1 ),
+                          LocationMatcher( filepath, 19,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 20,  1 ),
+                          LocationMatcher( filepath, 20,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 21,  1 ),
+                          LocationMatcher( filepath, 21,  2 ) ),
             ChunkMatcher( '    ',
                           LocationMatcher( filepath, 24,  1 ),
                           LocationMatcher( filepath, 24,  3 ) ),
@@ -221,6 +235,18 @@ def Subcommands_Format_WholeFile_Tabs_test( app ):
             ChunkMatcher( ' ',
                           LocationMatcher( filepath,  8,  6 ),
                           LocationMatcher( filepath,  8,  6 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 18,  1 ),
+                          LocationMatcher( filepath, 18,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 19,  1 ),
+                          LocationMatcher( filepath, 19,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 20,  1 ),
+                          LocationMatcher( filepath, 20,  2 ) ),
+            ChunkMatcher( ' ',
+                          LocationMatcher( filepath, 21,  1 ),
+                          LocationMatcher( filepath, 21,  2 ) ),
             ChunkMatcher( '\t',
                           LocationMatcher( filepath, 24,  1 ),
                           LocationMatcher( filepath, 24,  3 ) ),
@@ -339,6 +365,69 @@ def Subcommands_Format_Range_Tabs_test( app ):
   } )
 
 
+@IsolatedYcmd( { 'global_ycm_extra_conf':
+                 PathToTestFile( 'extra_confs', 'brace_on_same_line.py' ) } )
+def Subcommands_Format_ExtraConf_BraceOnSameLine_test( app ):
+  WaitUntilCompleterServerReady( app, 'javascript' )
+  filepath = PathToTestFile( 'extra_confs', 'func.js' )
+  RunTest( app, {
+    'description': 'Format with an extra conf, braces on new line',
+    'request': {
+      'command': 'Format',
+      'filepath': filepath,
+      'options': {
+        'tab_size': 4,
+        'insert_spaces': True
+      }
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
+            ChunkMatcher( '    ',
+                          LocationMatcher( filepath,  2,  1 ),
+                          LocationMatcher( filepath,  2,  1 ) ),
+          )
+        } ) )
+      } )
+    }
+  } )
+
+
+@IsolatedYcmd( { 'global_ycm_extra_conf':
+                 PathToTestFile( 'extra_confs', 'brace_on_new_line.py' ) } )
+def Subcommands_Format_ExtraConf_BraceOnNewLine_test( app ):
+  WaitUntilCompleterServerReady( app, 'javascript' )
+  filepath = PathToTestFile( 'extra_confs', 'func.js' )
+  RunTest( app, {
+    'description': 'Format with an extra conf, braces on new line',
+    'request': {
+      'command': 'Format',
+      'filepath': filepath,
+      'options': {
+        'tab_size': 4,
+        'insert_spaces': True
+      }
+    },
+    'expect': {
+      'response': requests.codes.ok,
+      'data': has_entries( {
+        'fixits': contains_exactly( has_entries( {
+          'chunks': contains_exactly(
+            ChunkMatcher( matches_regexp( '\r?\n' ),
+                          LocationMatcher( filepath,  1, 19 ),
+                          LocationMatcher( filepath,  1, 20 ) ),
+            ChunkMatcher( '    ',
+                          LocationMatcher( filepath,  2,  1 ),
+                          LocationMatcher( filepath,  2,  1 ) ),
+          )
+        } ) )
+      } )
+    }
+  } )
+
+
 @SharedYcmd
 def Subcommands_GetType_test( app ):
   RunTest( app, {
@@ -435,6 +524,50 @@ def Subcommands_GoToReferences_test( app ):
   } )
 
 
+@pytest.mark.parametrize( "req,rep", [
+  ( ( 'file3.js', 1, 1, 'testMethod' ), ( 'test.js', 27, 3, 'testMethod' ) ),
+
+  ( ( 'file3.js', 1, 1, 'BAR' ),
+    [ ( 'file3.js', 1, 5, 'bar' ),
+      ( 'test.js', 30, 5, 'bar' ),
+      ( 'test.js', 22, 1, 'Bar' ) ] ),
+
+  ( ( 'file3.js', 1, 1, 'nothinghere' ), 'Symbol not found' )
+] )
+@SharedYcmd
+def Subcommands_GoToSymbol_test( app, req, rep ):
+  if isinstance( rep, tuple ):
+    expect = {
+      'response': requests.codes.ok,
+      'data': LocationMatcher( PathToTestFile( rep[ 0 ] ), *rep[ 1: ] )
+    }
+  elif isinstance( rep, list ):
+    expect = {
+      'response': requests.codes.ok,
+      'data': contains_inanyorder( *[
+        LocationMatcher( PathToTestFile( r[ 0 ] ), *r[ 1: ] )
+          for r in rep
+      ] )
+    }
+  else:
+    expect = {
+      'response': requests.codes.internal_server_error,
+      'data': ErrorMatcher( RuntimeError, rep )
+    }
+
+  RunTest( app, {
+    'request': {
+      'command': 'GoToSymbol',
+      'arguments': [ req[ 3 ] ],
+      'line_num': req[ 1 ],
+      'column_num': req[ 2 ],
+      'filepath': PathToTestFile( req[ 0 ] ),
+    },
+    'expect': expect
+  } )
+
+
+
 def Subcommands_GoTo( app, goto_command ):
   RunTest( app, {
     'description': goto_command + ' works within file',
@@ -497,9 +630,9 @@ def Subcommands_FixIt_test( app ):
               ChunkMatcher(
                 matches_regexp(
                   '^\r?\n'
-                  '    nonExistingMethod\\(\\) {\r?\n'
-                  '        throw new Error\\("Method not implemented."\\);\r?\n'
-                  '    }$',
+                  '  nonExistingMethod\\(\\) {\r?\n'
+                  '      throw new Error\\("Method not implemented."\\);\r?\n'
+                  '  }$',
                 ),
                 LocationMatcher( filepath, 22, 12 ),
                 LocationMatcher( filepath, 22, 12 ) )
@@ -661,3 +794,8 @@ def Subcommands_RefactorRename_MultipleFiles_test( app ):
       } )
     }
   } )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

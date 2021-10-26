@@ -382,7 +382,6 @@ getattr(getattr, 1)
 getattr(str, [])
 
 
-# python >= 3.5
 class Base():
     def ret(self, b):
         return b
@@ -418,6 +417,13 @@ class GetattrArray():
 GetattrArray().something[0]
 #? []
 GetattrArray().something
+
+class WeirdGetattr:
+    class __getattr__():
+        pass
+
+#? []
+WeirdGetattr().something
 
 
 # -----------------
@@ -630,3 +636,19 @@ class C1(MyBase):
         self.f1() . # hey'''
         #? 13 MyBase.f1
         self.f1() . # hey'''
+
+# -----------------
+# With a very weird __init__
+# -----------------
+
+class WithWeirdInit:
+    class __init__:
+        def __init__(self, a):
+            self.a = a
+
+    def y(self):
+        return self.a
+
+
+#?
+WithWeirdInit(1).y()

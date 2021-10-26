@@ -36,7 +36,8 @@
 let s:single_test_timeout = 60000
 
 " Restrict the runtimepath to the exact minimum needed for testing
-set rtp=$PWD/lib,$VIM/vimfiles,$VIMRUNTIME,$VIM/vimfiles/after
+let &rtp = getcwd() . '/lib'
+set rtp +=$VIM/vimfiles,$VIMRUNTIME,$VIM/vimfiles/after
 
 call ch_logfile( 'debuglog', 'w' )
 
@@ -145,15 +146,33 @@ func RunTheTest(test)
     let s:testid_filesafe = g:testpath . '_' . test_filesafe
 
     au VimLeavePre * call EarlyExit(s:test)
+    call ch_log( 'StartTest: ' . a:test )
+
+    messages clear
     exe 'call ' . a:test
+    " We require that tests either don't make errors or that they call messages
+    " clear
+    call assert_true(
+          \ empty( execute( 'messages' ) ),
+          \ 'Test '
+          \ .. a:test
+          \ .. ' produced unexpected messages output '
+          \ .. string( execute( 'messages' ) )
+          \ .. ' (hint: call :messages clear if this is expected, '
+          \ .. 'or use :silent)' )
+
+    call ch_log( 'EndTest: ' . a:test )
     au! VimLeavePre
   catch /^\cskipped/
+    let v:errors = []
+    call ch_log( 'Skipped: ' . a:test )
     call add(s:messages, '    Skipped')
     call add(s:skipped,
           \ 'SKIPPED ' . a:test
           \ . ': '
           \ . substitute(v:exception, '^\S*\s\+', '',  ''))
   catch
+    call ch_log( 'Catch: ' . a:test )
     call add(v:errors,
           \ 'Caught exception in ' . a:test
           \ . ': '
@@ -204,6 +223,9 @@ func RunTheTest(test)
 
   " Clear any autocommands
   au!
+
+  call test_override( 'ALL', 0 )
+  %bwipe!
 
   " Close any extra tab pages and windows and make the current one not modified.
   while tabpagenr('$') > 1
@@ -293,7 +315,7 @@ func FinishTesting()
                 \ 'messages',
                 \ 's' )
 
-  if exists( '$COVERAGE' )
+  if exists( '$COVERAGE' ) && pyxeval( '_cov is not None' )
     pyx _cov.stop()
     pyx _cov.save()
   endif
@@ -343,8 +365,12 @@ endif
 
 pyx <<EOF
 def _InitCoverage():
-  import coverage
-  cov = coverage.Coverage( data_file='.coverage.python' )
+  try:
+    import coverage
+  except ImportError:
+    return None
+
+  cov = coverage.Coverage( data_file='.coverage.python', data_suffix = True )
   cov.start()
   return cov
 
@@ -357,6 +383,7 @@ EOF
 if exists( '$COVERAGE' )
   profile start .vim_profile
   exe 'profile! file */youcompleteme.vim'
+  exe 'profile! file */youcompleteme/**.vim'
 endif
 
 " Execute the tests in alphabetical order.

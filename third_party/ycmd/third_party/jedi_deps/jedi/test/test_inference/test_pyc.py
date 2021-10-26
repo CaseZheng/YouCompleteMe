@@ -29,33 +29,32 @@ def pyc_project_path(tmpdir):
     path = tmpdir.strpath
     dummy_package_path = os.path.join(path, "dummy_package")
     os.mkdir(dummy_package_path)
-    with open(os.path.join(dummy_package_path, "__init__.py"), 'w'):
+    with open(os.path.join(dummy_package_path, "__init__.py"), 'w', newline=''):
         pass
 
     dummy_path = os.path.join(dummy_package_path, 'dummy.py')
-    with open(dummy_path, 'w') as f:
+    with open(dummy_path, 'w', newline='') as f:
         f.write(SRC)
     import compileall
     compileall.compile_file(dummy_path)
     os.remove(dummy_path)
 
-    if sys.version_info.major == 3:
-        # Python3 specific:
-        # To import pyc modules, we must move them out of the __pycache__
-        # directory and rename them to remove ".cpython-%s%d"
-        # see: http://stackoverflow.com/questions/11648440/python-does-not-detect-pyc-files
-        pycache = os.path.join(dummy_package_path, "__pycache__")
-        for f in os.listdir(pycache):
-            dst = f.replace('.cpython-%s%s' % sys.version_info[:2], "")
-            dst = os.path.join(dummy_package_path, dst)
-            shutil.copy(os.path.join(pycache, f), dst)
+    # To import pyc modules, we must move them out of the __pycache__
+    # directory and rename them to remove ".cpython-%s%d"
+    # see: http://stackoverflow.com/questions/11648440/python-does-not-detect-pyc-files
+    pycache = os.path.join(dummy_package_path, "__pycache__")
+    for f in os.listdir(pycache):
+        dst = f.replace('.cpython-%s%s' % sys.version_info[:2], "")
+        dst = os.path.join(dummy_package_path, dst)
+        shutil.copy(os.path.join(pycache, f), dst)
     try:
         yield path
     finally:
         shutil.rmtree(path)
 
 
-def test_pyc(pyc_project_path, environment):
+@pytest.mark.parametrize('load_unsafe_extensions', [False, True])
+def test_pyc(pyc_project_path, environment, load_unsafe_extensions):
     """
     The list of completion must be greater than 2.
     """
@@ -66,8 +65,14 @@ def test_pyc(pyc_project_path, environment):
         # we also have the same version and it's easier to debug.
         environment = SameEnvironment()
     environment = environment
+    project = jedi.Project(pyc_project_path, load_unsafe_extensions=load_unsafe_extensions)
     s = jedi.Script(
         "from dummy_package import dummy; dummy.",
         path=path,
-        environment=environment)
-    assert len(s.complete()) >= 2
+        environment=environment,
+        project=project,
+    )
+    if load_unsafe_extensions:
+        assert len(s.complete()) >= 2
+    else:
+        assert not s.complete()

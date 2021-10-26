@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-#include "CharacterRepository.h"
+#include "Repository.h"
 #include "CodePoint.h"
 #include "Word.h"
 
@@ -27,7 +27,7 @@ namespace {
 
 // Break a sequence of code points into characters (grapheme clusters) according
 // to the rules in
-// https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Boundary_Rules
+// https://www.unicode.org/reports/tr29/tr29-37.html#Grapheme_Cluster_Boundary_Rules
 std::vector< std::string > BreakCodePointsIntoCharacters(
   const CodePointSequence &code_points ) {
 
@@ -272,7 +272,7 @@ std::vector< std::string > BreakCodePointsIntoCharacters(
 void Word::BreakIntoCharacters() {
   const CodePointSequence &code_points = BreakIntoCodePoints( text_ );
 
-  characters_ = CharacterRepository::Instance().GetCharacters(
+  characters_ = Repository< Character >::Instance().GetElements(
     BreakCodePointsIntoCharacters( code_points ) );
 }
 

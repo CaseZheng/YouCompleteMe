@@ -22,6 +22,7 @@ from hamcrest import ( assert_that,
                        has_entry )
 from pprint import pformat
 import json
+import os
 
 from ycmd.tests.rust import PathToTestFile, SharedYcmd
 from ycmd.tests.test_utils import ( BuildRequest,
@@ -29,7 +30,8 @@ from ycmd.tests.test_utils import ( BuildRequest,
                                     PollForMessages,
                                     PollForMessagesTimeoutException,
                                     RangeMatcher,
-                                    WaitForDiagnosticsToBeReady )
+                                    WaitForDiagnosticsToBeReady,
+                                    WithRetry )
 from ycmd.utils import ReadFile
 
 
@@ -39,7 +41,7 @@ DIAG_MATCHERS_PER_FILE = {
     has_entries( {
       'kind': 'ERROR',
       'text':
-          'no field `build_` on type `test::Builder`\n\nunknown field [E0609]',
+          'no field `build_` on type `test::Builder`\nunknown field [E0609]',
       'location': LocationMatcher( MAIN_FILEPATH, 14, 13 ),
       'location_extent': RangeMatcher( MAIN_FILEPATH, ( 14, 13 ), ( 14, 19 ) ),
       'ranges': contains_exactly( RangeMatcher( MAIN_FILEPATH,
@@ -51,10 +53,19 @@ DIAG_MATCHERS_PER_FILE = {
 }
 
 
+@WithRetry
 @SharedYcmd
 def Diagnostics_DetailedDiags_test( app ):
   filepath = PathToTestFile( 'common', 'src', 'main.rs' )
   contents = ReadFile( filepath )
+  with open( filepath, 'w' ) as f:
+    f.write( contents )
+  event_data = BuildRequest( event_name = 'FileSave',
+                             contents = contents,
+                             filepath = filepath,
+                             filetype = 'rust' )
+  app.post_json( '/event_notification', event_data )
+
   WaitForDiagnosticsToBeReady( app, filepath, contents, 'rust' )
   request_data = BuildRequest( contents = contents,
                                filepath = filepath,
@@ -65,25 +76,41 @@ def Diagnostics_DetailedDiags_test( app ):
   results = app.post_json( '/detailed_diagnostic', request_data ).json
   assert_that( results, has_entry(
       'message',
-      'no field `build_` on type `test::Builder`\n\nunknown field' ) )
+      'no field `build_` on type `test::Builder`\nunknown field' ) )
 
 
+@WithRetry
 @SharedYcmd
 def Diagnostics_FileReadyToParse_test( app ):
   filepath = PathToTestFile( 'common', 'src', 'main.rs' )
   contents = ReadFile( filepath )
+  with open( filepath, 'w' ) as f:
+    f.write( contents )
+  event_data = BuildRequest( event_name = 'FileSave',
+                             contents = contents,
+                             filepath = filepath,
+                             filetype = 'rust' )
+  app.post_json( '/event_notification', event_data )
 
   # It can take a while for the diagnostics to be ready.
   results = WaitForDiagnosticsToBeReady( app, filepath, contents, 'rust' )
-  print( 'completer response: {}'.format( pformat( results ) ) )
+  print( f'completer response: { pformat( results ) }' )
 
   assert_that( results, DIAG_MATCHERS_PER_FILE[ filepath ] )
 
 
 @SharedYcmd
 def Diagnostics_Poll_test( app ):
-  filepath = PathToTestFile( 'common', 'src', 'main.rs' )
+  project_dir = PathToTestFile( 'common' )
+  filepath = os.path.join( project_dir, 'src', 'main.rs' )
   contents = ReadFile( filepath )
+  with open( filepath, 'w' ) as f:
+    f.write( contents )
+  event_data = BuildRequest( event_name = 'FileSave',
+                             contents = contents,
+                             filepath = filepath,
+                             filetype = 'rust' )
+  app.post_json( '/event_notification', event_data )
 
   # Poll until we receive _all_ the diags asynchronously.
   to_see = sorted( DIAG_MATCHERS_PER_FILE.keys() )
@@ -94,13 +121,15 @@ def Diagnostics_Poll_test( app ):
                                     { 'filepath': filepath,
                                       'contents': contents,
                                       'filetype': 'rust' } ):
-      print( 'Message {}'.format( pformat( message ) ) )
+      print( f'Message { pformat( message ) }' )
       if 'diagnostics' in message:
+        if message[ 'diagnostics' ] == []:
+          # Sometimes we get empty diagnostics before the real ones.
+          continue
         seen[ message[ 'filepath' ] ] = True
         if message[ 'filepath' ] not in DIAG_MATCHERS_PER_FILE:
-          raise AssertionError(
-            'Received diagnostics for unexpected file {}. '
-            'Only expected {}'.format( message[ 'filepath' ], to_see ) )
+          raise AssertionError( 'Received diagnostics for unexpected file '
+            f'{ message[ "filepath" ] }. Only expected { to_see }' )
         assert_that( message, has_entries( {
           'diagnostics': DIAG_MATCHERS_PER_FILE[ message[ 'filepath' ] ],
           'filepath': message[ 'filepath' ]
@@ -115,6 +144,10 @@ def Diagnostics_Poll_test( app ):
     raise AssertionError(
       str( e ) +
       'Timed out waiting for full set of diagnostics. '
-      'Expected to see diags for {}, but only saw {}.'.format(
-        json.dumps( to_see, indent=2 ),
-        json.dumps( sorted( seen.keys() ), indent=2 ) ) )
+      f'Expected to see diags for { json.dumps( to_see, indent = 2 ) }, '
+      f'but only saw { json.dumps( sorted( seen.keys() ), indent = 2 ) }.' )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

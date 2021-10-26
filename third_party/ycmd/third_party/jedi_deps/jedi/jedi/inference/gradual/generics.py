@@ -23,13 +23,16 @@ def _resolve_forward_references(context, value_set):
             yield value
 
 
-class _AbstractGenericManager(object):
+class _AbstractGenericManager:
     def get_index_and_execute(self, index):
         try:
             return self[index].execute_annotation()
         except IndexError:
             debug.warning('No param #%s found for annotation %s', index, self)
             return NO_VALUES
+
+    def get_type_hint(self):
+        return '[%s]' % ', '.join(t.get_type_hint(add_class_info=False) for t in self.to_tuple())
 
 
 class LazyGenericManager(_AbstractGenericManager):

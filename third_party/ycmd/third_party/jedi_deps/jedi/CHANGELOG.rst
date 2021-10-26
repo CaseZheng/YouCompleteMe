@@ -3,6 +3,76 @@
 Changelog
 ---------
 
+Unreleased
+++++++++++
+
+0.18.0 (2020-12-25)
++++++++++++++++++++
+
+- Dropped Python 2 and Python 3.5
+- Using ``pathlib.Path()`` as an output instead of ``str`` in most places:
+  - ``Project.path``
+  - ``Script.path``
+  - ``Definition.module_path``
+  - ``Refactoring.get_renames``
+  - ``Refactoring.get_changed_files``
+- Functions with ``@property`` now return ``property`` instead of ``function``
+  in ``Name().type``
+- Started using annotations
+- Better support for the walrus operator
+- Project attributes are now read accessible
+- Removed all deprecations
+
+This is likely going to be the last minor release before 1.0.
+
+0.17.2 (2020-07-17)
++++++++++++++++++++
+
+- Added an option to pass environment variables to ``Environment``
+- ``Project(...).path`` exists now
+- Support for Python 3.9
+- A few bugfixes
+
+This will be the last release that supports Python 2 and Python 3.5.
+``0.18.0`` will be Python 3.6+.
+
+0.17.1 (2020-06-20)
++++++++++++++++++++
+
+- Django ``Model`` meta class support
+- Django Manager support (completion on Managers/QuerySets)
+- Added Django Stubs to Jedi, thanks to all contributors of the
+  `Django Stubs <https://github.com/typeddjango/django-stubs>`_ project
+- Added ``SyntaxError.get_message``
+- Python 3.9 support
+- Bugfixes (mostly towards Generics)
+
+0.17.0 (2020-04-14)
++++++++++++++++++++
+
+- Added ``Project`` support. This allows a user to specify which folders Jedi
+  should work with.
+- Added support for Refactoring. The following refactorings have been
+  implemented: ``Script.rename``, ``Script.inline``,
+  ``Script.extract_variable`` and ``Script.extract_function``.
+- Added ``Script.get_syntax_errors`` to display syntax errors in the current
+  script.
+- Added code search capabilities both for individual files and projects. The
+  new functions are ``Project.search``, ``Project.complete_search``,
+  ``Script.search`` and ``Script.complete_search``.
+- Added ``Script.help`` to make it easier to display a help window to people.
+  Now returns pydoc information as well for Python keywords/operators.  This
+  means that on the class keyword it will now return the docstring of Python's
+  builtin function ``help('class')``.
+- The API documentation is now way more readable and complete. Check it out
+  under https://jedi.readthedocs.io. A lot of it has been rewritten.
+- Removed Python 3.4 support
+- Many bugfixes
+
+This is likely going to be the last minor version that supports Python 2 and
+Python3.5. Bugfixes will be provided in 0.17.1+. The next minor/major version
+will probably be Jedi 1.0.0.
+
 0.16.0 (2020-01-26)
 +++++++++++++++++++
 
@@ -25,8 +95,8 @@ Changelog
     - ``call_signatures`` deprecated, use ``get_signatures`` instead
     - ``usages`` deprecated, use ``get_references`` instead
     - ``jedi.names`` deprecated, use ``jedi.Script(...).get_names()``
-- ``BaseDefinition.goto_assignments`` renamed to ``BaseDefinition.goto``
-- Add follow_imports to ``Definition.goto``. Now its signature matches
+- ``BaseName.goto_assignments`` renamed to ``BaseName.goto``
+- Add follow_imports to ``Name.goto``. Now its signature matches
   ``Script.goto``.
 - **Python 2 support deprecated**. For this release it is best effort. Python 2
   has reached the end of its life and now it's just about a smooth transition.
@@ -66,13 +136,13 @@ Changelog
 
 New APIs:
 
-- ``Definition.get_signatures() -> List[Signature]``. Signatures are similar to
-  ``CallSignature``. ``Definition.params`` is therefore deprecated.
+- ``Name.get_signatures() -> List[Signature]``. Signatures are similar to
+  ``CallSignature``. ``Name.params`` is therefore deprecated.
 - ``Signature.to_string()`` to format signatures.
-- ``Signature.params -> List[ParamDefinition]``, ParamDefinition has the
+- ``Signature.params -> List[ParamName]``, ParamName has the
   following additional attributes ``infer_default()``, ``infer_annotation()``,
   ``to_string()``, and ``kind``.
-- ``Definition.execute() -> List[Definition]``, makes it possible to infer
+- ``Name.execute() -> List[Name]``, makes it possible to infer
   return values of functions.
 
 
@@ -88,7 +158,7 @@ New APIs:
 - Added ``goto_*(prefer_stubs=True)`` as well as ``goto_*(prefer_stubs=True)``
 - Stubs are used now for type inference
 - Typeshed is used for better type inference
-- Reworked Definition.full_name, should have more correct return values
+- Reworked Name.full_name, should have more correct return values
 
 0.13.3 (2019-02-24)
 +++++++++++++++++++
@@ -168,7 +238,7 @@ New APIs:
 - Actual semantic completions for the complete Python syntax.
 - Basic type inference for ``yield from`` PEP 380.
 - PEP 484 support (most of the important features of it). Thanks Claude! (@reinhrst)
-- Added ``get_line_code`` to ``Definition`` and ``Completion`` objects.
+- Added ``get_line_code`` to ``Name`` and ``Completion`` objects.
 - Completely rewritten the type inference engine.
 - A new and better parser for (fast) parsing diffs of Python code.
 

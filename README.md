@@ -10,15 +10,15 @@ endif
 ```
 
 ## 编译环境
-1. python 3.7.4 64位
-2. golang 1.14.1 64位
+1. python 3.8 64位
+2. golang 1.16 64位
 3. Visual Studio 2019
 4. cmake 3.17.0
 5. Windows10
 
 ## 依赖环境
 1. vim 64位 需要支持python3[https://github.com/vim/vim-win32-installer](https://github.com/vim/vim-win32-installer)
-2. python 3.7.4 64位
+2. python 3.8 64位
 3. Visual Studio 2019（不安装无法补全标准库）
 
 ## 编译时命令

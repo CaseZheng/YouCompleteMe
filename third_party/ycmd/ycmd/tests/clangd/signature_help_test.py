@@ -76,8 +76,7 @@ def RunTest( app, test ):
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
 
-  print( 'Completer response: {}'.format( json.dumps(
-    response.json, indent = 2 ) ) )
+  print( f'Completer response: { json.dumps( response.json, indent = 2 ) }' )
 
   assert_that( response.json, test[ 'expect' ][ 'data' ] )
 
@@ -636,3 +635,8 @@ def Signature_Help_Available_Disabled_By_User_test( app, *args ):
   response = app.get( '/signature_help_available',
                       { 'subserver': 'cpp' } ).json
   assert_that( response, SignatureAvailableMatcher( 'NO' ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

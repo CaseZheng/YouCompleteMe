@@ -7,19 +7,17 @@ from contextlib import contextmanager
 
 from parso.python import tree
 
-from jedi._compatibility import unicode
-from jedi.parser_utils import get_parent_scope
-
 
 def is_stdlib_path(path):
     # Python standard library paths look like this:
-    # /usr/lib/python3.5/...
+    # /usr/lib/python3.9/...
     # TODO The implementation below is probably incorrect and not complete.
-    if 'dist-packages' in path or 'site-packages' in path:
+    parts = path.parts
+    if 'dist-packages' in parts or 'site-packages' in parts:
         return False
 
     base_path = os.path.join(sys.prefix, 'lib', 'python')
-    return bool(re.match(re.escape(base_path) + r'\d.\d', path))
+    return bool(re.match(re.escape(base_path) + r'\d.\d', str(path)))
 
 
 def deep_ast_copy(obj):
@@ -122,35 +120,8 @@ def get_names_of_node(node):
         return list(chain.from_iterable(get_names_of_node(c) for c in children))
 
 
-def get_module_names(module, all_scopes):
-    """
-    Returns a dictionary with name parts as keys and their call paths as
-    values.
-    """
-    names = list(chain.from_iterable(module.get_used_names().values()))
-    if not all_scopes:
-        # We have to filter all the names that don't have the module as a
-        # parent_scope. There's None as a parent, because nodes in the module
-        # node have the parent module and not suite as all the others.
-        # Therefore it's important to catch that case.
-
-        def is_module_scope_name(name):
-            parent_scope = get_parent_scope(name)
-            # async functions have an extra wrapper. Strip it.
-            if parent_scope and parent_scope.type == 'async_stmt':
-                parent_scope = parent_scope.parent
-            return parent_scope in (module, None)
-
-        names = [n for n in names if is_module_scope_name(n)]
-    return names
-
-
 def is_string(value):
-    if value.inference_state.environment.version_info.major == 2:
-        str_classes = (unicode, bytes)
-    else:
-        str_classes = (unicode,)
-    return value.is_compiled() and isinstance(value.get_safe_value(default=None), str_classes)
+    return value.is_compiled() and isinstance(value.get_safe_value(default=None), str)
 
 
 def is_literal(value):
@@ -168,7 +139,7 @@ def get_int_or_none(value):
 
 
 def get_str_or_none(value):
-    return _get_safe_value_or_none(value, (bytes, unicode))
+    return _get_safe_value_or_none(value, str)
 
 
 def is_number(value):

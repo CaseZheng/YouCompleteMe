@@ -19,6 +19,7 @@
 #include "CodePoint.h"
 
 #include <algorithm>
+#include <cassert>
 
 namespace YouCompleteMe {
 
@@ -30,29 +31,31 @@ bool CodePointCompare( const CodePoint *left, const CodePoint *right ) {
 
 
 // Sort the code points according to the Canonical Ordering Algorithm.
-// See https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G49591
+// See https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G49591
 CodePointSequence CanonicalSort( CodePointSequence code_points ) {
   auto code_point_start = code_points.begin();
+  auto code_point_end = code_points.end();
 
   while ( code_point_start != code_points.end() ) {
-    if ( ( *code_point_start )->CombiningClass() == 0 ) {
-      ++code_point_start;
-      continue;
-    }
+    // Find the first sortable code point
+    code_point_start = std::find_if(
+      code_point_start,
+      code_points.end(),
+      [](const CodePoint* cp ) {
+        return cp->CombiningClass() != 0;
+      } );
 
-    auto code_point_end = code_point_start + 1;
-    while ( code_point_end != code_points.end() &&
-            ( *code_point_end )->CombiningClass() != 0 ) {
-      ++code_point_end;
-    }
+    // Find the last consecutive sortable code point
+    code_point_end = std::find_if(
+      code_point_start,
+      code_points.end(),
+      []( const CodePoint* cp ) {
+        return cp->CombiningClass() == 0;
+      } );
 
     std::sort( code_point_start, code_point_end, CodePointCompare );
 
-    if ( code_point_end == code_points.end() ) {
-      break;
-    }
-
-    code_point_start = code_point_end + 1;
+    code_point_start = code_point_end;
   }
 
   return code_points;
@@ -61,27 +64,21 @@ CodePointSequence CanonicalSort( CodePointSequence code_points ) {
 
 // Decompose a UTF-8 encoded string into a sequence of code points according to
 // Canonical Decomposition. See
-// https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G733
-CodePointSequence CanonicalDecompose( const std::string &text ) {
-  CodePointSequence code_points = BreakIntoCodePoints( text );
-  std::string normal;
-
-  for ( const auto &code_point : code_points ) {
-    normal.append( code_point->Normal() );
-  }
-
-  return CanonicalSort( BreakIntoCodePoints( normal ) );
+// https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G733
+CodePointSequence CanonicalDecompose( std::string_view text ) {
+  assert( NormalizeInput( text ) == text );
+  return CanonicalSort( BreakIntoCodePoints( text ) );
 }
 
 } // unnamed namespace
 
-Character::Character( const std::string &character )
+Character::Character( std::string_view character )
   : is_base_( true ),
     is_letter_( false ),
     is_punctuation_( false ),
     is_uppercase_( false ) {
   // Normalize the character through NFD (Normalization Form D). See
-  // https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G49621
+  // https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G49621
   CodePointSequence code_points = CanonicalDecompose( character );
 
   for ( const auto &code_point : code_points ) {
@@ -102,6 +99,17 @@ Character::Character( const std::string &character )
         base_.append( code_point->FoldedCase() );
     }
   }
+}
+
+
+std::string NormalizeInput( std::string_view text ) {
+    CodePointSequence code_points = BreakIntoCodePoints( text );
+    std::string normal;
+
+    for ( const auto &code_point : code_points ) {
+      normal.append( code_point->Normal() );
+    }
+    return normal;
 }
 
 } // namespace YouCompleteMe

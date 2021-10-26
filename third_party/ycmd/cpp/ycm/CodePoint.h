@@ -25,7 +25,7 @@
 namespace YouCompleteMe {
 
 // See
-// http://www.unicode.org/reports/tr29/#Grapheme_Cluster_Break_Property_Values
+// http://www.unicode.org/reports/tr29/tr29-37.html#Grapheme_Cluster_Break_Property_Values
 // NOTE: The properties must take the same value as the ones defined in the
 // update_unicode.py script.
 enum class BreakProperty : uint8_t {
@@ -50,10 +50,10 @@ enum class BreakProperty : uint8_t {
 // This is the structure used to store the data in the Unicode table. See the
 // CodePoint class for a description of the members.
 struct RawCodePoint {
-  const char *original;
-  const char *normal;
-  const char *folded_case;
-  const char *swapped_case;
+  std::string_view original;
+  std::string_view normal;
+  std::string_view folded_case;
+  std::string_view swapped_case;
   bool is_letter;
   bool is_punctuation;
   bool is_uppercase;
@@ -80,10 +80,10 @@ struct RawCodePoint {
 //  - its breaking property: used to split a word into characters.
 //  - its combining class: used to sort a sequence of code points according to
 //    the Canonical Ordering algorithm (see
-//    https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G49591).
+//    https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G49591).
 class CodePoint {
 public:
-  YCM_EXPORT explicit CodePoint( const std::string &code_point );
+  YCM_EXPORT explicit CodePoint( std::string_view code_point );
   // Make class noncopyable
   CodePoint( const CodePoint& ) = delete;
   CodePoint& operator=( const CodePoint& ) = delete;
@@ -144,7 +144,7 @@ using CodePointSequence = std::vector< const CodePoint * >;
 
 
 // Split a UTF-8 encoded string into UTF-8 code points.
-YCM_EXPORT CodePointSequence BreakIntoCodePoints( const std::string &text );
+YCM_EXPORT CodePointSequence BreakIntoCodePoints( std::string_view text );
 
 
 // Thrown when an error occurs while decoding a UTF-8 string.

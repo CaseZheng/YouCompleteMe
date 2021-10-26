@@ -1,7 +1,6 @@
 *~
 *.sw?
 *.pyc
-.tox
 .coveralls.yml
 .coverage
 /build/
@@ -11,3 +10,4 @@ parso.egg-info/
 /.cache/
 /.pytest_cache
 test/fuzz-redo.pickle
+/venv/

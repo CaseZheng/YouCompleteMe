@@ -24,9 +24,9 @@ YCM_EXTRA_CONF_FILENAME = '.ycm_extra_conf.py'
 CONFIRM_CONF_FILE_MESSAGE = ( 'Found {0}. Load? \n\n(Question can be turned '
                               'off with options, see YCM docs)' )
 
-NO_EXTRA_CONF_FILENAME_MESSAGE = ( 'No {0} file detected, so no compile flags '
-  'are available. Thus no semantic support for C/C++/ObjC/ObjC++. Go READ THE '
-  'DOCS *NOW*, DON\'T file a bug report.' ).format( YCM_EXTRA_CONF_FILENAME )
+NO_EXTRA_CONF_FILENAME_MESSAGE = ( f'No { YCM_EXTRA_CONF_FILENAME } file '
+  'detected, so no compile flags are available. Thus no semantic support for '
+  'C/C++/ObjC/ObjC++. Go READ THE ' 'DOCS *NOW*, DON\'T file a bug report.' )
 
 NO_DIAGNOSTIC_SUPPORT_MESSAGE = ( 'YCM has no diagnostics support for this '
   'filetype; refer to Syntastic docs if using Syntastic.' )
@@ -137,6 +137,13 @@ def BuildCompletionResponse( completions,
   }
 
 
+def BuildResolveCompletionResponse( completion, errors ):
+  return {
+    'completion': completion,
+    'errors': errors if errors else [],
+  }
+
+
 def BuildSignatureHelpResponse( signature_info, errors = None ):
   return {
     'signature_help':
@@ -179,10 +186,11 @@ class Diagnostic:
 
 
 class UnresolvedFixIt:
-  def __init__( self, command, text ):
+  def __init__( self, command, text, kind = None ):
     self.command = command
     self.text = text
     self.resolve = True
+    self.kind = kind
 
 
 class FixIt:
@@ -194,11 +202,17 @@ class FixIt:
   must be byte offsets into the UTF-8 encoded version of the appropriate
   buffer.
   """
-  def __init__( self, location, chunks, text = '' ):
+  class Kind:
+    """These are LSP kinds that we use outside of LSP completers."""
+    REFACTOR = 'refactor'
+
+
+  def __init__( self, location, chunks, text = '', kind = None ):
     """location of type Location, chunks of type list<FixItChunk>"""
     self.location = location
     self.chunks = chunks
     self.text = text
+    self.kind = kind
 
 
 class FixItChunk:
@@ -228,7 +242,7 @@ class Location:
     self.line_number_ = line
     self.column_number_ = column
     if filename:
-      self.filename_ = os.path.realpath( filename )
+      self.filename_ = os.path.abspath( filename )
     else:
       # When the filename passed (e.g. by a server) can't be recognized or
       # parsed, we send an empty filename. This at least allows the client to
@@ -287,18 +301,25 @@ def BuildFixItResponse( fixits ):
 
   def BuildFixItData( fixit ):
     if hasattr( fixit, 'resolve' ):
-      return {
+      result = {
         'command': fixit.command,
         'text': fixit.text,
+        'kind': fixit.kind,
         'resolve': fixit.resolve
       }
     else:
-      return {
+      result = {
         'location': BuildLocationData( fixit.location ),
         'chunks' : [ BuildFixitChunkData( x ) for x in fixit.chunks ],
         'text': fixit.text,
+        'kind': fixit.kind,
         'resolve': False
       }
+
+    if result[ 'kind' ] is None:
+      result.pop( 'kind' )
+
+    return result
 
   return {
     'fixits' : [ BuildFixItData( x ) for x in fixits ]

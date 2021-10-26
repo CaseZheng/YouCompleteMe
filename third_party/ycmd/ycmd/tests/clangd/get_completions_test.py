@@ -83,8 +83,8 @@ def RunTest( app, test ):
       assert_that( response.status_code,
                    equal_to( test[ 'expect' ][ 'response' ] ) )
 
-      print( 'Completer response: {}'.format( json.dumps(
-        response.json, indent = 2 ) ) )
+      print( 'Completer response: '
+             f'{ json.dumps( response.json, indent = 2 ) }' )
 
       assert_that( response.json, test[ 'expect' ][ 'data' ] )
       break
@@ -114,9 +114,9 @@ def GetCompletions_ForcedWithNoTrigger_NoYcmdCaching_test( app ):
       'response': requests.codes.ok,
       'data': has_entries( {
         'completions': contains_exactly(
+          CompletionEntryMatcher( 'do_something', 'void' ),
           CompletionEntryMatcher( 'DO_SOMETHING_TO', 'void' ),
           CompletionEntryMatcher( 'DO_SOMETHING_WITH', 'void' ),
-          CompletionEntryMatcher( 'do_something', 'void' ),
         ),
         'errors': empty(),
       } )
@@ -140,9 +140,9 @@ def GetCompletions_NotForced_NoYcmdCaching_test( app ):
       'response': requests.codes.ok,
       'data': has_entries( {
         'completions': contains_exactly(
+          CompletionEntryMatcher( 'do_something', 'void' ),
           CompletionEntryMatcher( 'DO_SOMETHING_TO', 'void' ),
           CompletionEntryMatcher( 'DO_SOMETHING_WITH', 'void' ),
-          CompletionEntryMatcher( 'do_something', 'void' ),
         ),
         'errors': empty(),
       } )
@@ -452,10 +452,8 @@ def GetCompletions_ClangCLDriverFlag_SimpleCompletion_test( app ):
       'data': has_entries( {
         'completion_start_column': 3,
         'completions': contains_inanyorder(
-          CompletionEntryMatcher( 'driver_mode_cl_include_func',
-                                  'void\n"driver_mode_cl_include.h"' ),
-          CompletionEntryMatcher( 'driver_mode_cl_include_int',
-                                  'int\n"driver_mode_cl_include.h"' ),
+          CompletionEntryMatcher( 'driver_mode_cl_include_func', 'void' ),
+          CompletionEntryMatcher( 'driver_mode_cl_include_int', 'int' ),
         ),
         'errors': empty(),
       } )
@@ -483,10 +481,8 @@ def GetCompletions_ClangCLDriverExec_SimpleCompletion_test( app ):
       'data': has_entries( {
         'completion_start_column': 3,
         'completions': contains_inanyorder(
-          CompletionEntryMatcher( 'driver_mode_cl_include_func',
-                                  'void\n"driver_mode_cl_include.h"' ),
-          CompletionEntryMatcher( 'driver_mode_cl_include_int',
-                                  'int\n"driver_mode_cl_include.h"' ),
+          CompletionEntryMatcher( 'driver_mode_cl_include_func', 'void' ),
+          CompletionEntryMatcher( 'driver_mode_cl_include_int', 'int' ),
         ),
         'errors': empty(),
       } )
@@ -659,7 +655,7 @@ def GetCompletions_QuotedInclude_AfterDot_test( app ):
       'filepath'  : PathToTestFile( 'test-include', 'main.cpp' ),
       'line_num'  : 9,
       'column_num': 28,
-      'compilation_flags': [ '-x', 'cpp' ]
+      'compilation_flags': [ '-x', 'c++' ]
     },
     'expect': {
       'response': requests.codes.ok,
@@ -755,7 +751,7 @@ def GetCompletions_BracketInclude_AtDirectorySeparator_test( app ):
       'filepath'  : PathToTestFile( 'test-include', 'main.cpp' ),
       'line_num'  : 10,
       'column_num': 18,
-      'compilation_flags': [ '-x', 'cpp' ],
+      'compilation_flags': [ '-x', 'c++' ],
       # NOTE: when not forcing semantic, it falls back to the filename
       # completer and returns the root folder entries.
       'force_semantic': True
@@ -903,3 +899,8 @@ def GetCompletions_SupportExtraConf_test( app ):
       } )
     }
   } )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

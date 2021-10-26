@@ -87,13 +87,46 @@ def test_version_info(Script):
 
         sys.version_info"""))
 
-    c, = s.completions()
+    c, = s.complete()
     assert c.docstring() == 'sys.version_info\n\nVersion information as a named tuple.'
 
 
-def test_builtin_docstring(goto_or_help_or_infer, skip_python2):
+def test_builtin_docstring(goto_or_help_or_infer):
     d, = goto_or_help_or_infer('open')
 
     doc = d.docstring()
     assert doc.startswith('open(file: Union[')
     assert 'Open file' in doc
+
+
+def test_docstring_decorator(goto_or_help_or_infer):
+    code = dedent('''
+        import types
+
+        def dec(func):
+            return types.FunctionType()
+
+        @dec
+        def func(a, b):
+            "hello"
+            return
+        func''')
+    d, = goto_or_help_or_infer(code)
+
+    doc = d.docstring()
+    assert doc == 'FunctionType(*args: Any, **kwargs: Any) -> Any\n\nhello'
+
+
+@pytest.mark.parametrize('code', ['', '\n', ' '])
+def test_empty(Script, code):
+    assert not Script(code).help(1, 0)
+
+
+@pytest.mark.parametrize('code', ['f()', '(bar or baz)', 'f[3]'])
+def test_no_help_for_operator(Script, code):
+    assert not Script(code).help()
+
+
+@pytest.mark.parametrize('code', ['()', '(1,)', '[]', '[1]', 'f[]'])
+def test_help_for_operator(Script, code):
+    assert Script(code).help()

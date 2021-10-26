@@ -8,7 +8,7 @@ import pytest
 from . import helpers
 from . import run
 from . import refactor
-from jedi.api.environment import InterpreterEnvironment, get_system_environment
+from jedi import InterpreterEnvironment, get_system_environment
 from jedi.inference.compiled.value import create_from_access_path
 from jedi.inference.imports import _load_python_module
 from jedi.file_io import KnownContentFileIO
@@ -76,9 +76,11 @@ def pytest_generate_tests(metafunc):
 
     if 'refactor_case' in metafunc.fixturenames:
         base_dir = metafunc.config.option.refactor_case_dir
+        cases = list(refactor.collect_dir_tests(base_dir, test_files))
         metafunc.parametrize(
-            'refactor_case',
-            refactor.collect_dir_tests(base_dir, test_files))
+            'refactor_case', cases,
+            ids=[c.refactor_type + '-' + c.name for c in cases]
+        )
 
     if 'static_analysis_case' in metafunc.fixturenames:
         base_dir = os.path.join(os.path.dirname(__file__), 'static_analysis')
@@ -100,9 +102,7 @@ def collect_static_analysis_tests(base_dir, test_files):
 
 @pytest.fixture(scope='session')
 def venv_path(tmpdir_factory, environment):
-    if environment.version_info.major < 3:
-        pytest.skip("python -m venv does not exist in Python 2")
-    elif isinstance(environment, InterpreterEnvironment):
+    if isinstance(environment, InterpreterEnvironment):
         # The environment can be a tox virtualenv environment which we don't
         # want, so use the system environment.
         environment = get_system_environment(

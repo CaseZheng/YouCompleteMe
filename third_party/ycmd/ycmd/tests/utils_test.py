@@ -18,12 +18,14 @@
 import os
 import pytest
 import subprocess
+import sys
 import tempfile
 from hamcrest import ( assert_that,
                        calling,
                        contains_exactly,
                        empty,
                        equal_to,
+                       has_entry,
                        has_length,
                        has_property,
                        instance_of,
@@ -385,6 +387,27 @@ def FindExecutable_AdditionalPathExt_test():
     assert_that( executable, equal_to( utils.FindExecutable( executable ) ) )
 
 
+def FindExecutableWithFallback_Empty_test():
+  with TemporaryExecutable() as fallback:
+    assert_that( utils.FindExecutableWithFallback( '', fallback ),
+                 equal_to( fallback ) )
+
+
+@patch( 'ycmd.utils.FindExecutable', return_value = None )
+def FindExecutableWithFallback_UserProvided_Invalid_test( find_executable ):
+  with TemporaryExecutable() as executable:
+    with TemporaryExecutable() as fallback:
+      assert_that( utils.FindExecutableWithFallback( executable, fallback ),
+                   equal_to( None ) )
+
+
+def FindExecutableWithFallback_UserProvided_test():
+  with TemporaryExecutable() as executable:
+    with TemporaryExecutable() as fallback:
+      assert_that( utils.FindExecutableWithFallback( executable, fallback ),
+                   equal_to( executable ) )
+
+
 @patch( 'ycmd.utils.ProcessIsRunning', return_value = True )
 def WaitUntilProcessIsTerminated_TimedOut_test( *args ):
   assert_that(
@@ -396,13 +419,14 @@ def WaitUntilProcessIsTerminated_TimedOut_test( *args ):
 
 
 def LoadPythonSource_UnicodePath_test():
-  filename = PathToTestFile( u'uni¢𐍈d€.py' )
+  filename = PathToTestFile( u'uni¢od€.py' )
   module = utils.LoadPythonSource( 'module_name', filename )
   assert_that( module, instance_of( ModuleType ) )
   assert_that( module.__file__, equal_to( filename ) )
   assert_that( module.__name__, equal_to( 'module_name' ) )
   assert_that( module, has_property( 'SomeMethod' ) )
   assert_that( module.SomeMethod(), equal_to( True ) )
+  assert_that( sys.modules, has_entry( module.__name__, module ) )
 
 
 def GetCurrentDirectory_Py3NoCurrentDirectory_test():
@@ -438,6 +462,7 @@ def ImportAndCheckCore_Compatible_test( logger ):
   assert_that( logger.method_calls, empty() )
 
 
+@pytest.mark.valgrind_skip
 def ImportAndCheckCore_Unexpected_test():
   RunImportAndCheckCoreException( {
     'exception_message': 'unexpected import exception',
@@ -446,6 +471,7 @@ def ImportAndCheckCore_Unexpected_test():
   } )
 
 
+@pytest.mark.valgrind_skip
 def ImportAndCheckCore_Missing_test():
   RunImportAndCheckCoreException( {
     'exception_message': "No module named 'ycm_core'",
@@ -486,15 +512,48 @@ def GetClangResourceDir_NotFound_test( *args ):
   )
 
 
-def MakeSafeFileNameString_test():
-  tests = (
+@pytest.mark.parametrize( 'unsafe_name,safe_name', [
     ( 'this is a test 0123 -x', 'this_is_a_test_0123__x' ),
     ( 'This Is A Test 0123 -x', 'this_is_a_test_0123__x' ),
     ( 'T˙^ß ^ß å †´ß† 0123 -x', 't______________0123__x' ),
     ( 'contains/slashes',       'contains_slashes' ),
     ( 'contains/newline/\n',    'contains_newline__' ),
     ( '',                       '' ),
-  )
-  for t in tests:
-    assert_that( utils.MakeSafeFileNameString( t[ 0 ] ),
-                 equal_to( t[ 1 ] ) )
+  ] )
+def MakeSafeFileNameString_test( unsafe_name, safe_name ):
+  assert_that( utils.MakeSafeFileNameString( unsafe_name ),
+               equal_to( safe_name ) )
+
+
+@pytest.mark.parametrize( 'target,override,expected', [
+  ( {}, {}, {} ),
+  ( { 1: 1 }, {}, { 1: 1 } ),
+  ( {}, { 1: 1 }, { 1: 1 } ),
+  ( { 1: { 4: 4 } }, { 1: { 2: { 3: 3 } } }, { 1: { 2: { 3: 3 }, 4: 4 } } ),
+  ( { 1: {} }, { 1: 1 }, { 1: 1 } ),
+  (
+    {
+      'outer': { 'inner': { 'key': 'oldValue', 'existingKey': True } }
+    },
+    {
+      'outer': { 'inner': { 'key': 'newValue' } },
+      'newKey': { 'newDict': True },
+    },
+    {
+      'outer': {
+        'inner': {
+           'key': 'newValue',
+           'existingKey': True
+        }
+      },
+      'newKey': { 'newDict': True }
+    } ),
+] )
+def UpdateDict_test( target, override, expected ):
+  assert_that( utils.UpdateDict( target, override ),
+               equal_to( expected ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

@@ -18,27 +18,37 @@
 #ifndef IDENTIFIERDATABASE_H_ZESX3CVR
 #define IDENTIFIERDATABASE_H_ZESX3CVR
 
-#include <map>
-#include <memory>
-#include <mutex>
-#include <set>
-#include <string>
+#ifdef YCM_ABSEIL_SUPPORTED
+#include <absl/container/flat_hash_map.h>
+namespace YouCompleteMe {
+template< typename K, typename V >
+using HashMap = absl::flat_hash_map< K, V >;
+} // namespace YouCompleteMe
+#else
 #include <unordered_map>
+namespace YouCompleteMe {
+template< typename K, typename V >
+using HashMap = std::unordered_map< K, V >;
+} // namespace YouCompleteMe
+#endif
+#include <memory>
+#include <shared_mutex>
+#include <string>
 #include <vector>
 
 namespace YouCompleteMe {
 
 class Candidate;
 class Result;
-class CandidateRepository;
+template< typename Candidate >
+class Repository;
 
 
 // filepath -> identifiers
-using FilepathToIdentifiers = std::map< std::string,
-                                        std::vector< std::string > >;
+using FilepathToIdentifiers = HashMap< std::string, std::vector< std::string > >;
 
 // filetype -> (filepath -> identifiers)
-using FiletypeIdentifierMap = std::map< std::string, FilepathToIdentifiers >;
+using FiletypeIdentifierMap = HashMap< std::string, FilepathToIdentifiers >;
 
 
 // This class stores the database of identifiers the identifier completer has
@@ -56,15 +66,20 @@ public:
   IdentifierDatabase( const IdentifierDatabase& ) = delete;
   IdentifierDatabase& operator=( const IdentifierDatabase& ) = delete;
 
-  void AddIdentifiers( FiletypeIdentifierMap&& filetype_identifier_map );
+  void AddSingleIdentifier(
+    std::string&& new_candidate,
+    std::string&& filetype,
+    std::string&& filepath );
 
-  void AddIdentifiers(
+  void RecreateIdentifiers( FiletypeIdentifierMap&& filetype_identifier_map );
+
+  void RecreateIdentifiers(
     std::vector< std::string >&& new_candidates,
-    const std::string &filetype,
-    const std::string &filepath );
+    std::string&& filetype,
+    std::string&& filepath );
 
-  void ClearCandidatesStoredForFile( const std::string &filetype,
-                                     const std::string &filepath );
+  void ClearCandidatesStoredForFile( std::string&& filetype,
+                                     std::string&& filepath );
 
   std::vector< Result > ResultsForQueryAndType(
     std::string&& query,
@@ -72,30 +87,29 @@ public:
     const size_t max_results ) const;
 
 private:
-  std::set< const Candidate * > &GetCandidateSet(
-    const std::string &filetype,
-    const std::string &filepath );
+  std::vector< Candidate > &GetCandidateSet(
+    std::string&& filetype,
+    std::string&& filepath );
 
-  void AddIdentifiersNoLock(
+  void RecreateIdentifiersNoLock(
     std::vector< std::string >&& new_candidates,
-    const std::string &filetype,
-    const std::string &filepath );
+    std::string&& filetype,
+    std::string&& filepath );
 
 
-  // filepath -> *( *candidate )
+  // filepath -> ( candidate )
   using FilepathToCandidates =
-    std::unordered_map < std::string,
-                         std::shared_ptr< std::set< const Candidate * > > >;
+    std::unordered_map < std::string, std::vector< Candidate > >;
 
-  // filetype -> *( filepath -> *( *candidate ) )
+  // filetype -> ( filepath -> ( candidate ) )
   using FiletypeCandidateMap =
-    std::unordered_map < std::string, std::shared_ptr< FilepathToCandidates > >;
+    std::unordered_map < std::string, FilepathToCandidates >;
 
 
-  CandidateRepository &candidate_repository_;
+  Repository< Candidate > &candidate_repository_;
 
   FiletypeCandidateMap filetype_candidate_map_;
-  mutable std::mutex filetype_candidate_map_mutex_;
+  mutable std::shared_mutex filetype_candidate_map_mutex_;
 };
 
 } // namespace YouCompleteMe

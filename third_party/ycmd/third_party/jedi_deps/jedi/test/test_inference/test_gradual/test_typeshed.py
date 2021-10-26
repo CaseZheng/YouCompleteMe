@@ -14,22 +14,12 @@ TYPESHED_PYTHON3 = os.path.join(typeshed.TYPESHED_PATH, 'stdlib', '3')
 def test_get_typeshed_directories():
     def get_dirs(version_info):
         return {
-            d.replace(typeshed.TYPESHED_PATH, '').lstrip(os.path.sep)
-            for d in typeshed._get_typeshed_directories(version_info)
+            p.path.replace(str(typeshed.TYPESHED_PATH), '').lstrip(os.path.sep)
+            for p in typeshed._get_typeshed_directories(version_info)
         }
 
     def transform(set_):
         return {x.replace('/', os.path.sep) for x in set_}
-
-    dirs = get_dirs(PythonVersionInfo(2, 7))
-    assert dirs == transform({'stdlib/2and3', 'stdlib/2', 'third_party/2and3', 'third_party/2'})
-
-    dirs = get_dirs(PythonVersionInfo(3, 4))
-    assert dirs == transform({'stdlib/2and3', 'stdlib/3', 'third_party/2and3', 'third_party/3'})
-
-    dirs = get_dirs(PythonVersionInfo(3, 5))
-    assert dirs == transform({'stdlib/2and3', 'stdlib/3',
-                              'third_party/2and3', 'third_party/3'})
 
     dirs = get_dirs(PythonVersionInfo(3, 6))
     assert dirs == transform({'stdlib/2and3', 'stdlib/3',
@@ -38,11 +28,8 @@ def test_get_typeshed_directories():
 
 
 def test_get_stub_files():
-    def get_map(version_info):
-        return typeshed._create_stub_map(version_info)
-
-    map_ = typeshed._create_stub_map(TYPESHED_PYTHON3)
-    assert map_['functools'] == os.path.join(TYPESHED_PYTHON3, 'functools.pyi')
+    map_ = typeshed._create_stub_map(typeshed.PathInfo(TYPESHED_PYTHON3, is_third_party=False))
+    assert map_['functools'].path == os.path.join(TYPESHED_PYTHON3, 'functools.pyi')
 
 
 def test_function(Script, environment):
@@ -65,7 +52,7 @@ def test_keywords_variable(Script):
         assert seq.name == 'Sequence'
         # This points towards the typeshed implementation
         stub_seq, = seq.goto(only_stubs=True)
-        assert typeshed.TYPESHED_PATH in stub_seq.module_path
+        assert str(stub_seq.module_path).startswith(str(typeshed.TYPESHED_PATH))
 
 
 def test_class(Script):
@@ -104,8 +91,12 @@ def test_sys_exc_info(Script):
     none, def_ = Script(code + '[1]').infer()
     # It's an optional.
     assert def_.name == 'BaseException'
+    assert def_.module_path == typeshed.TYPESHED_PATH.joinpath(
+        'stdlib', '2and3', 'builtins.pyi'
+    )
     assert def_.type == 'instance'
     assert none.name == 'NoneType'
+    assert none.module_path is None
 
     none, def_ = Script(code + '[0]').infer()
     assert def_.name == 'BaseException'
@@ -116,18 +107,15 @@ def test_sys_getwindowsversion(Script, environment):
     # This should only exist on Windows, but type inference should happen
     # everywhere.
     definitions = Script('import sys; sys.getwindowsversion().major').infer()
-    if environment.version_info.major == 2:
-        assert not definitions
-    else:
-        def_, = definitions
-        assert def_.name == 'int'
+    def_, = definitions
+    assert def_.name == 'int'
 
 
 def test_sys_hexversion(Script):
     script = Script('import sys; sys.hexversion')
     def_, = script.complete()
     assert isinstance(def_._name, StubName), def_._name
-    assert typeshed.TYPESHED_PATH in def_.module_path
+    assert str(def_.module_path).startswith(str(typeshed.TYPESHED_PATH))
     def_, = script.infer()
     assert def_.name == 'int'
 
@@ -142,7 +130,7 @@ def test_math(Script):
 def test_type_var(Script):
     def_, = Script('import typing; T = typing.TypeVar("T1")').infer()
     assert def_.name == 'TypeVar'
-    assert def_.description == 'TypeVar = object()'
+    assert def_.description == 'class TypeVar'
 
 
 @pytest.mark.parametrize(
@@ -154,14 +142,14 @@ def test_type_var(Script):
 def test_math_is_stub(Script, code, full_name):
     s = Script(code)
     cos, = s.infer()
-    wanted = os.path.join('typeshed', 'stdlib', '2and3', 'math.pyi')
-    assert cos.module_path.endswith(wanted)
+    wanted = ('typeshed', 'stdlib', '2and3', 'math.pyi')
+    assert cos.module_path.parts[-4:] == wanted
     assert cos.is_stub() is True
     assert cos.goto(only_stubs=True) == [cos]
     assert cos.full_name == full_name
 
     cos, = s.goto()
-    assert cos.module_path.endswith(wanted)
+    assert cos.module_path.parts[-4:] == wanted
     assert cos.goto(only_stubs=True) == [cos]
     assert cos.is_stub() is True
     assert cos.full_name == full_name
@@ -230,3 +218,25 @@ def test_goto_stubs_on_itself(Script, code, type_):
 
     _assert_is_same(same_definition, definition)
     _assert_is_same(same_definition, same_definition2)
+
+
+def test_module_exists_only_as_stub(Script):
+    try:
+        import redis
+    except ImportError:
+        pass
+    else:
+        pytest.skip('redis is already installed, it should only exist as a stub for this test')
+    redis_path = os.path.join(typeshed.TYPESHED_PATH, 'third_party', '2and3', 'redis')
+    assert os.path.isdir(redis_path)
+    assert not Script('import redis').infer()
+
+
+def test_django_exists_only_as_stub(Script):
+    try:
+        import django
+    except ImportError:
+        pass
+    else:
+        pytest.skip('django is already installed, it should only exist as a stub for this test')
+    assert not Script('import django').infer()

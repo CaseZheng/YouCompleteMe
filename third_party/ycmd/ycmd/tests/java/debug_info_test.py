@@ -16,11 +16,15 @@
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 from hamcrest import ( assert_that,
+                       calling,
                        contains_exactly,
                        equal_to,
                        has_entry,
                        has_entries,
-                       instance_of )
+                       has_items,
+                       instance_of,
+                       raises,
+                       starts_with )
 
 from unittest.mock import patch
 from ycmd.tests.java import ( DEFAULT_PROJECT_DIR,
@@ -28,7 +32,10 @@ from ycmd.tests.java import ( DEFAULT_PROJECT_DIR,
                               PathToTestFile,
                               SharedYcmd,
                               StartJavaCompleterServerInDirectory )
-from ycmd.tests.test_utils import BuildRequest, WaitUntilCompleterServerReady
+from ycmd.tests.test_utils import ( BuildRequest,
+                                    WaitUntilCompleterServerReady,
+                                    WithRetry )
+from ycmd import handlers
 from ycmd.completers.language_server import language_server_completer as lsc
 
 import json
@@ -44,7 +51,7 @@ def DebugInfo_HandleNotificationInPollThread_Throw_test( app ):
                              'Test.java' )
   StartJavaCompleterServerInDirectory( app, filepath )
 
-  # This mock will be called in the message pump thread, so syncronize the
+  # This mock will be called in the message pump thread, so synchronize the
   # result (thrown) using an Event
   thrown = threading.Event()
 
@@ -116,7 +123,7 @@ def DebugInfo_test( app ):
 
 
 @IsolatedYcmd( { 'extra_conf_globlist': PathToTestFile( 'extra_confs', '*' ) } )
-def Subcommands_ExtraConf_SettingsValid_test( app ):
+def DebugInfo_ExtraConf_SettingsValid_test( app ):
   StartJavaCompleterServerInDirectory(
     app,
     PathToTestFile( 'extra_confs', 'simple_extra_conf_project' ) )
@@ -167,3 +174,90 @@ def Subcommands_ExtraConf_SettingsValid_test( app ):
       } ) )
     } ) )
   )
+  # Make sure a didSave notification doesn't cause anything to error.
+  event_data = BuildRequest( event_name = 'FileSave',
+                             contents = 'asd',
+                             filepath = filepath,
+                             filetype = 'java' )
+  app.post_json( '/event_notification', event_data )
+  assert_that(
+    app.post_json( '/debug_info', request_data ).json,
+    has_entry( 'completer', has_entries( {
+      'name': 'Java',
+      'servers': contains_exactly( has_entries( {
+        'name': 'jdt.ls',
+        'is_running': instance_of( bool ) } ) ) } ) ) )
+
+
+@WithRetry
+@IsolatedYcmd( {
+  'extra_conf_globlist': PathToTestFile( 'lombok_project', '*' )
+} )
+def DebugInfo_JvmArgs_test( app ):
+  StartJavaCompleterServerInDirectory(
+    app, PathToTestFile( 'lombok_project', 'src' ) )
+
+  filepath = PathToTestFile( 'lombok_project',
+                             'src',
+                             'main',
+                             'java',
+                             'com',
+                             'ycmd',
+                             'App.java' )
+
+  request_data = BuildRequest( filepath = filepath,
+                               filetype = 'java' )
+
+  assert_that(
+    app.post_json( '/debug_info', request_data ).json,
+    has_entry( 'completer', has_entries( {
+      'servers': contains_exactly( has_entries( {
+        'executable': has_items( starts_with( '-javaagent:' ) ),
+      } ) )
+    } ) )
+  )
+
+
+@IsolatedYcmd()
+@patch( 'watchdog.observers.api.BaseObserver.schedule',
+        side_effect = RuntimeError )
+def DebugInfo_WorksAfterWatchdogErrors_test( watchdog_schedule, app ):
+  filepath = PathToTestFile( 'simple_eclipse_project',
+                             'src',
+                             'com',
+                             'test',
+                             'AbstractTestWidget.java' )
+
+  StartJavaCompleterServerInDirectory( app, filepath )
+  request_data = BuildRequest( filepath = filepath,
+                               filetype = 'java' )
+  completer = handlers._server_state.GetFiletypeCompleter( [ 'java' ] )
+  connection = completer.GetConnection()
+  assert_that( calling( connection._HandleDynamicRegistrations ).with_args(
+      {
+        'params': { 'registrations': [
+          {
+            'method': 'workspace/didChangeWatchedFiles',
+            'registerOptions': {
+              'watchers': [ { 'globPattern': 'whatever' } ]
+            }
+          }
+        ] }
+      }
+    ),
+    raises( RuntimeError ) )
+  assert_that(
+    app.post_json( '/debug_info', request_data ).json,
+    has_entry( 'completer', has_entries( {
+      'name': 'Java',
+      'servers': has_items( has_entries( {
+        'name': 'jdt.ls',
+        'is_running': True
+      } ) )
+    } ) )
+  )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

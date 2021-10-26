@@ -1,6 +1,5 @@
 from parso.python import tree
 
-from jedi._compatibility import use_metaclass
 from jedi import debug
 from jedi.inference.cache import inference_state_method_cache, CachedMetaClass
 from jedi.inference import compiled
@@ -26,7 +25,7 @@ from jedi.inference.gradual.generics import TupleGenericManager
 
 class LambdaName(AbstractNameDefinition):
     string_name = '<lambda>'
-    api_type = u'function'
+    api_type = 'function'
 
     def __init__(self, lambda_value):
         self._lambda_value = lambda_value
@@ -54,14 +53,13 @@ class FunctionAndClassBase(TreeValue):
             return None
 
 
-class FunctionMixin(object):
-    api_type = u'function'
+class FunctionMixin:
+    api_type = 'function'
 
     def get_filters(self, origin_scope=None):
         cls = self.py__class__()
         for instance in cls.execute_with_values():
-            for filter in instance.get_filters(origin_scope=origin_scope):
-                yield filter
+            yield from instance.get_filters(origin_scope=origin_scope)
 
     def py__get__(self, instance, class_value):
         from jedi.inference.value.instance import BoundMethod
@@ -86,6 +84,33 @@ class FunctionMixin(object):
     def py__name__(self):
         return self.name.string_name
 
+    def get_type_hint(self, add_class_info=True):
+        return_annotation = self.tree_node.annotation
+        if return_annotation is None:
+            def param_name_to_str(n):
+                s = n.string_name
+                annotation = n.infer().get_type_hint()
+                if annotation is not None:
+                    s += ': ' + annotation
+                if n.default_node is not None:
+                    s += '=' + n.default_node.get_code(include_prefix=False)
+                return s
+
+            function_execution = self.as_context()
+            result = function_execution.infer()
+            return_hint = result.get_type_hint()
+            body = self.py__name__() + '(%s)' % ', '.join([
+                param_name_to_str(n)
+                for n in function_execution.get_param_names()
+            ])
+            if return_hint is None:
+                return body
+        else:
+            return_hint = return_annotation.get_code(include_prefix=False)
+            body = self.py__name__() + self.tree_node.children[2].get_code(include_prefix=False)
+
+        return body + ' -> ' + return_hint
+
     def py__call__(self, arguments):
         function_execution = self.as_context(arguments)
         return function_execution.infer()
@@ -99,7 +124,7 @@ class FunctionMixin(object):
         return [TreeSignature(f) for f in self.get_signature_functions()]
 
 
-class FunctionValue(use_metaclass(CachedMetaClass, FunctionMixin, FunctionAndClassBase)):
+class FunctionValue(FunctionMixin, FunctionAndClassBase, metaclass=CachedMetaClass):
     @classmethod
     def from_context(cls, context, tree_node):
         def create(tree_node):
@@ -134,7 +159,7 @@ class FunctionValue(use_metaclass(CachedMetaClass, FunctionMixin, FunctionAndCla
         return function
 
     def py__class__(self):
-        c, = values_from_qualified_names(self.inference_state, u'types', u'FunctionType')
+        c, = values_from_qualified_names(self.inference_state, 'types', 'FunctionType')
         return c
 
     def get_default_param_context(self):
@@ -146,7 +171,7 @@ class FunctionValue(use_metaclass(CachedMetaClass, FunctionMixin, FunctionAndCla
 
 class FunctionNameInClass(NameWrapper):
     def __init__(self, class_context, name):
-        super(FunctionNameInClass, self).__init__(name)
+        super().__init__(name)
         self._class_context = class_context
 
     def get_defining_qualified_value(self):
@@ -155,7 +180,7 @@ class FunctionNameInClass(NameWrapper):
 
 class MethodValue(FunctionValue):
     def __init__(self, inference_state, class_context, *args, **kwargs):
-        super(MethodValue, self).__init__(inference_state, *args, **kwargs)
+        super().__init__(inference_state, *args, **kwargs)
         self.class_context = class_context
 
     def get_default_param_context(self):
@@ -171,14 +196,11 @@ class MethodValue(FunctionValue):
 
     @property
     def name(self):
-        return FunctionNameInClass(self.class_context, super(MethodValue, self).name)
+        return FunctionNameInClass(self.class_context, super().name)
 
 
 class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
-    def is_function_execution(self):
-        return True
-
-    def _infer_annotations(self):
+    def infer_annotations(self):
         raise NotImplementedError
 
     @inference_state_method_cache(default=NO_VALUES)
@@ -192,7 +214,7 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
             value_set = NO_VALUES
             returns = get_yield_exprs(self.inference_state, funcdef)
         else:
-            value_set = self._infer_annotations()
+            value_set = self.infer_annotations()
             if value_set:
                 # If there are annotations, prefer them over anything else.
                 # This will make it faster.
@@ -201,40 +223,39 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
             returns = funcdef.iter_return_stmts()
 
         for r in returns:
-            check = flow_analysis.reachability_check(self, funcdef, r)
-            if check is flow_analysis.UNREACHABLE:
-                debug.dbg('Return unreachable: %s', r)
+            if check_yields:
+                value_set |= ValueSet.from_sets(
+                    lazy_value.infer()
+                    for lazy_value in self._get_yield_lazy_value(r)
+                )
             else:
-                if check_yields:
-                    value_set |= ValueSet.from_sets(
-                        lazy_value.infer()
-                        for lazy_value in self._get_yield_lazy_value(r)
-                    )
+                check = flow_analysis.reachability_check(self, funcdef, r)
+                if check is flow_analysis.UNREACHABLE:
+                    debug.dbg('Return unreachable: %s', r)
                 else:
                     try:
                         children = r.children
                     except AttributeError:
-                        ctx = compiled.builtin_from_name(self.inference_state, u'None')
+                        ctx = compiled.builtin_from_name(self.inference_state, 'None')
                         value_set |= ValueSet([ctx])
                     else:
                         value_set |= self.infer_node(children[1])
-            if check is flow_analysis.REACHABLE:
-                debug.dbg('Return reachable: %s', r)
-                break
+                if check is flow_analysis.REACHABLE:
+                    debug.dbg('Return reachable: %s', r)
+                    break
         return value_set
 
     def _get_yield_lazy_value(self, yield_expr):
         if yield_expr.type == 'keyword':
             # `yield` just yields None.
-            ctx = compiled.builtin_from_name(self.inference_state, u'None')
+            ctx = compiled.builtin_from_name(self.inference_state, 'None')
             yield LazyKnownValue(ctx)
             return
 
         node = yield_expr.children[1]
         if node.type == 'yield_arg':  # It must be a yield from.
             cn = ContextualizedNode(self, node.children[1])
-            for lazy_value in cn.infer().iterate(cn):
-                yield lazy_value
+            yield from cn.infer().iterate(cn)
         else:
             yield LazyTreeValue(self, node)
 
@@ -265,7 +286,7 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
             else:
                 types = self.get_return_values(check_yields=True)
                 if types:
-                    yield LazyKnownValues(types)
+                    yield LazyKnownValues(types, min=0, max=float('inf'))
                 return
             last_for_stmt = for_stmt
 
@@ -273,8 +294,7 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
             if for_stmt is None:
                 # No for_stmt, just normal yields.
                 for yield_ in yields:
-                    for result in self._get_yield_lazy_value(yield_):
-                        yield result
+                    yield from self._get_yield_lazy_value(yield_)
             else:
                 input_node = for_stmt.get_testlist()
                 cn = ContextualizedNode(self, input_node)
@@ -284,8 +304,7 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
                     dct = {str(for_stmt.children[1].value): lazy_value.infer()}
                     with self.predefine_names(for_stmt, dct):
                         for yield_in_same_for_stmt in yields:
-                            for result in self._get_yield_lazy_value(yield_in_same_for_stmt):
-                                yield result
+                            yield from self._get_yield_lazy_value(yield_in_same_for_stmt)
 
     def merge_yield_values(self, is_async=False):
         return ValueSet.from_sets(
@@ -306,8 +325,6 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
 
         if is_coroutine:
             if self.is_generator():
-                if inference_state.environment.version_info < (3, 6):
-                    return NO_VALUES
                 async_generator_classes = inference_state.typing_module \
                     .py__getattribute__('AsyncGenerator')
 
@@ -315,13 +332,10 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
                 # The contravariant doesn't seem to be defined.
                 generics = (yield_values.py__class__(), NO_VALUES)
                 return ValueSet(
-                    # In Python 3.6 AsyncGenerator is still a class.
                     GenericClass(c, TupleGenericManager(generics))
                     for c in async_generator_classes
                 ).execute_annotation()
             else:
-                if inference_state.environment.version_info < (3, 5):
-                    return NO_VALUES
                 async_classes = inference_state.typing_module.py__getattribute__('Coroutine')
                 return_values = self.get_return_values()
                 # Only the first generic is relevant.
@@ -338,7 +352,7 @@ class BaseFunctionExecutionContext(ValueContext, TreeContextMixin):
 
 class FunctionExecutionContext(BaseFunctionExecutionContext):
     def __init__(self, function_value, arguments):
-        super(FunctionExecutionContext, self).__init__(function_value)
+        super().__init__(function_value)
         self._arguments = arguments
 
     def get_filters(self, until_position=None, origin_scope=None):
@@ -349,7 +363,7 @@ class FunctionExecutionContext(BaseFunctionExecutionContext):
             arguments=self._arguments
         )
 
-    def _infer_annotations(self):
+    def infer_annotations(self):
         from jedi.inference.gradual.annotation import infer_return_types
         return infer_return_types(self._value, self._arguments)
 
@@ -361,7 +375,7 @@ class FunctionExecutionContext(BaseFunctionExecutionContext):
 
 
 class AnonymousFunctionExecution(BaseFunctionExecutionContext):
-    def _infer_annotations(self):
+    def infer_annotations(self):
         # I don't think inferring anonymous executions is a big thing.
         # Anonymous contexts are mostly there for the user to work in. ~ dave
         return NO_VALUES
@@ -379,7 +393,7 @@ class AnonymousFunctionExecution(BaseFunctionExecutionContext):
 
 class OverloadedFunctionValue(FunctionMixin, ValueWrapper):
     def __init__(self, function, overloaded_functions):
-        super(OverloadedFunctionValue, self).__init__(function)
+        super().__init__(function)
         self._overloaded_functions = overloaded_functions
 
     def py__call__(self, arguments):
@@ -398,6 +412,9 @@ class OverloadedFunctionValue(FunctionMixin, ValueWrapper):
 
     def get_signature_functions(self):
         return self._overloaded_functions
+
+    def get_type_hint(self, add_class_info=True):
+        return 'Union[%s]' % ', '.join(f.get_type_hint() for f in self._overloaded_functions)
 
 
 def _find_overload_functions(context, tree_node):

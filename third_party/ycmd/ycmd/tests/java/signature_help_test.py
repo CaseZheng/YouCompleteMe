@@ -70,6 +70,7 @@ def RunTest( app, test ):
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
 
+  print( response.json )
   assert_that( response.json, test[ 'expect' ][ 'data' ] )
 
 
@@ -175,3 +176,8 @@ def Signature_Help_Available_test( app ):
   response = app.get( '/signature_help_available',
                       { 'subserver': 'java' } ).json
   assert_that( response, SignatureAvailableMatcher( 'YES' ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

@@ -82,7 +82,7 @@ def RunTest( app, test, contents = None ):
     expect_errors = True
   )
 
-  print( 'completer response: {}'.format( pformat( response.json ) ) )
+  print( f'completer response: { pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -117,10 +117,14 @@ def Subcommands_DefinedSubcommands_test( app ):
                                     'GoTo',
                                     'GoToDeclaration',
                                     'GoToDefinition',
+                                    'GoToDocumentOutline',
                                     'GoToReferences',
+                                    'GoToImplementation',
                                     'GoToType',
+                                    'GoToSymbol',
                                     'FixIt',
-                                    'RestartServer' ) )
+                                    'RestartServer',
+                                    'ExecuteCommand' ) )
 
 
 @SharedYcmd
@@ -185,16 +189,16 @@ def Subcommands_Format_WholeFile_test( app ):
           'chunks': contains_exactly(
             ChunkMatcher( '',
                           LocationMatcher( filepath, 8, 1 ),
-                          LocationMatcher( filepath, 9, 1 ) ),
-            ChunkMatcher( '\tdummy() //GoTo\n',
-                          LocationMatcher( filepath, 9, 1 ),
-                          LocationMatcher( filepath, 9, 1 ) ),
+                          LocationMatcher( filepath, 8, 5 ) ),
+            ChunkMatcher( '\t',
+                          LocationMatcher( filepath, 8, 5 ),
+                          LocationMatcher( filepath, 8, 5 ) ),
             ChunkMatcher( '',
                           LocationMatcher( filepath, 12, 1 ),
-                          LocationMatcher( filepath, 13, 1 ) ),
-            ChunkMatcher( '\tdiagnostics_test\n',
-                          LocationMatcher( filepath, 13, 1 ),
-                          LocationMatcher( filepath, 13, 1 ) ),
+                          LocationMatcher( filepath, 12, 5 ) ),
+            ChunkMatcher( '\t',
+                          LocationMatcher( filepath, 12, 5 ),
+                          LocationMatcher( filepath, 12, 5 ) ),
           )
         } ) )
       } )
@@ -397,55 +401,39 @@ def Subcommands_GoToType_test( app, test ):
   RunGoToTest( app, 'GoToType', test )
 
 
+@pytest.mark.parametrize( 'test', [
+    # Works
+    { 'req': ( 'thing.go', 3, 8 ),
+      'res': ( 'thing.go', 7, 6 ) },
+    # Fails
+    { 'req': ( 'thing.go', 12, 7 ),
+      'res': 'Cannot jump to location' } ] )
+@SharedYcmd
+def Subcommands_GoToImplementation_test( app, test ):
+  RunGoToTest( app, 'GoToImplementation', test )
+
+
 @SharedYcmd
 def Subcommands_FixIt_NullResponse_test( app ):
   filepath = PathToTestFile( 'td', 'test.go' )
   RunFixItTest( app,
                 'Gopls returned NULL for response[ \'result\' ]',
-                filepath, 1, 1, has_entry( 'fixits', contains_exactly(
-                  has_entries( { 'text': "Organize Imports",
-                                 'chunks': empty() } ) ) ) )
-
-
-@SharedYcmd
-def Subcommands_FixIt_ParseError_test( app ):
-  RunTest( app, {
-    'description': 'Parse error leads to ResponseFailedException',
-    'request': {
-      'command': 'FixIt',
-      'line_num': 1,
-      'column_num': 1,
-      'filepath': PathToTestFile( 'unicode', 'unicode.go' ),
-    },
-    'expect': {
-      'response': requests.codes.internal_server_error,
-      'data': ErrorMatcher( ResponseFailedException,
-                            matches_regexp( '^Request failed: \\d' ) )
-    }
-  } )
+                filepath, 1, 1, has_entry( 'fixits', empty() ) )
 
 
 @SharedYcmd
 def Subcommands_FixIt_Simple_test( app ):
-  filepath = PathToTestFile( 'goto.go' )
+  filepath = PathToTestFile( 'fixit.go' )
   fixit = has_entries( {
     'fixits': contains_exactly(
       has_entries( {
         'text': "Organize Imports",
         'chunks': contains_exactly(
           ChunkMatcher( '',
-                        LocationMatcher( filepath, 8, 1 ),
-                        LocationMatcher( filepath, 9, 1 ) ),
-          ChunkMatcher( '\tdummy() //GoTo\n',
-                        LocationMatcher( filepath, 9, 1 ),
-                        LocationMatcher( filepath, 9, 1 ) ),
-          ChunkMatcher( '',
-                        LocationMatcher( filepath, 12, 1 ),
-                        LocationMatcher( filepath, 13, 1 ) ),
-          ChunkMatcher( '\tdiagnostics_test\n',
-                        LocationMatcher( filepath, 13, 1 ),
-                        LocationMatcher( filepath, 13, 1 ) ),
+                        LocationMatcher( filepath, 2, 1 ),
+                        LocationMatcher( filepath, 3, 1 ) ),
         ),
+        'kind': 'source.organizeImports',
       } ),
     )
   } )
@@ -489,3 +477,8 @@ def Subcommands_GoToReferences_test( app ):
   test = { 'req': ( filepath, 10, 5 ), 'res': [ ( filepath, 10, 5 ),
                                                 ( filepath, 13, 5 ) ] }
   RunGoToTest( app, 'GoToReferences', test )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

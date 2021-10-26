@@ -1,7 +1,9 @@
+from os.path import join
 from itertools import chain
+from functools import partial
 
 import jedi
-from ..helpers import cwd_at
+from ..helpers import test_dir
 
 
 def test_import_empty(Script):
@@ -34,10 +36,7 @@ def test_follow_import_incomplete(Script, environment):
 
     # incomplete `from * import` part
     datetime = check_follow_definition_types(Script, "from datetime import datetim")
-    if environment.version_info.major == 2:
-        assert datetime == ['class']
-    else:
-        assert set(datetime) == {'class', 'instance'}  # py3: builtin and pure py version
+    assert set(datetime) == {'class', 'instance'}  # py3: builtin and pure py version
     # os.path check
     ospath = check_follow_definition_types(Script, "from os.path import abspat")
     assert set(ospath) == {'function'}
@@ -47,8 +46,8 @@ def test_follow_import_incomplete(Script, environment):
     assert alias == ['module']
 
 
-@cwd_at('test/completion/import_tree')
 def test_follow_definition_nested_import(Script):
+    Script = partial(Script, project=jedi.Project(join(test_dir, 'completion', 'import_tree')))
     types = check_follow_definition_types(Script, "import pkg.mod1; pkg")
     assert types == ['module']
 

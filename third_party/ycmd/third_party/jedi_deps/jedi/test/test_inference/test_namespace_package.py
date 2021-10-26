@@ -4,6 +4,7 @@ import pytest
 import py
 
 from ..helpers import get_example_dir, example_dir
+from jedi import Project
 
 
 SYS_PATH = [get_example_dir('namespace_package', 'ns1'),
@@ -11,7 +12,7 @@ SYS_PATH = [get_example_dir('namespace_package', 'ns1'),
 
 
 def script_with_path(Script, *args, **kwargs):
-    return Script(sys_path=SYS_PATH, *args, **kwargs)
+    return Script(project=Project('.', sys_path=SYS_PATH), *args, **kwargs)
 
 
 def test_goto_definition(Script):
@@ -39,7 +40,7 @@ def test_goto_assignment(Script, source, solution):
 def test_simple_completions(Script):
     # completion
     completions = script_with_path(Script, 'from pkg import ').complete()
-    names = [str(c.name) for c in completions]  # str because of unicode
+    names = [c.name for c in completions]
     compare = ['foo', 'ns1_file', 'ns1_folder', 'ns2_folder', 'ns2_file',
                'pkg_resources', 'pkgutil', '__name__', '__path__',
                '__package__', '__file__', '__doc__']
@@ -69,10 +70,8 @@ def test_nested_namespace_package(Script):
     code = 'from nested_namespaces.namespace.pkg import CONST'
 
     sys_path = [example_dir]
-
-    script = Script(sys_path=sys_path, source=code)
-
-    result = script.infer(line=1, column=45)
+    project = Project('.', sys_path=sys_path)
+    result = Script(code, project=project).infer(line=1, column=45)
 
     assert len(result) == 1
 
@@ -81,9 +80,6 @@ def test_relative_import(Script, environment, tmpdir):
     """
     Attempt a relative import in a very simple namespace package.
     """
-    if environment.version_info < (3, 4):
-        pytest.skip()
-
     directory = get_example_dir('namespace_package_relative_import')
     # Need to copy the content in a directory where there's no __init__.py.
     py.path.local(directory).copy(tmpdir)

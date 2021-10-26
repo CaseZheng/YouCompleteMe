@@ -81,7 +81,7 @@ def RunTest( app, test, contents = None ):
     expect_errors = True
   )
 
-  print( 'completer response: {0}'.format( pformat( response.json ) ) )
+  print( f'completer response: { pformat( response.json ) }' )
 
   assert_that( response.status_code,
                equal_to( test[ 'expect' ][ 'response' ] ) )
@@ -282,7 +282,7 @@ def Subcommands_GoToReferences_Unicode_test( app ):
 
 
 @SharedYcmd
-def Subcommands_GetDocWithNoItendifier_test( app ):
+def Subcommands_GetDocWithNoIdentifier_test( app ):
   RunTest( app, {
     'description': 'GetDoc works when no identifier',
     'request': {
@@ -530,3 +530,8 @@ def Subcommands_StopServer_Timeout_test( app ):
                    has_entry( 'is_running', False )
                  ) )
                ) )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True

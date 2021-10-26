@@ -372,6 +372,13 @@ definitions:
         $ref: "#/definitions/LineNumber"
       column_num:
         $ref: "#/definitions/ColumnNumber"
+      extra_data:
+        type: object
+        description: |-
+          Additional data specific to the response type. For GoTo requests,
+          this may include "kind" and "name" to specify additional data about
+          the GoTo target when doing a symbol search, such as GoToSymbol
+          or GoToDocumentOutline. If supplied, "kind" is a LSP symbol kind.
 
   UnresolvedFixIt:
     type: object
@@ -381,7 +388,7 @@ definitions:
       resolve:
         type: boolean
         description: |-
-          Indicates wether the fixit requires additional processing.
+          Indicates whether the fixit requires additional processing.
   FixIt:
     type: object
     required:
@@ -400,7 +407,15 @@ definitions:
       resolve:
         type: boolean
         description: |-
-          Indicates wether the fixit requires additional processing.
+          Indicates whether the fixit requires additional processing.
+      kind:
+        type: string
+        description: |-
+          FixIt kind is meant to suggest what sort of fixit this is. Clients
+          are free to ignore this property or use it to decide whether to
+          automatically apply the fixit. SUpported values are those of LSP.
+          Search for `namespace CodeActionKind` in the following link
+          https://microsoft.github.io/language-server-protocol/specifications/specification-3-15/#textDocument_codeAction
       chunks:
         type: array
         description: |-
@@ -472,6 +487,19 @@ definitions:
             description: |-
               Additional documentation/information to be displayed
               alongside (after) information in `detailed_info`.
+          fixits:
+            type: array
+            description: |-
+              Any editional edits to apply when selecting this completion
+            items:
+              $ref: "#/definitions/FixIt"
+          resolve:
+            type: number
+            description: |-
+              Identifier used to resolve this completion item using
+              /resolve_completion. If not supplied, the item is already
+              fully resolved.
+
 
   CompletionResponse:
     type: object
@@ -490,6 +518,20 @@ definitions:
           1-based byte index of the column from which the completion should be
           applied. This is the column in which the words suggested in
           `completions` should be placed.
+      errors:
+        type: array
+        description: Any errors reported by the semantic completion engine.
+        items:
+          $ref: "#/definitions/ExceptionResponse"
+
+  ResolveCompletionResponse:
+    type: object
+    required:
+      - completion
+      - errors
+    properties:
+      completion:
+        $ref: "#/definitions/Candidate"
       errors:
         type: array
         description: Any errors reported by the semantic completion engine.
@@ -596,7 +638,7 @@ definitions:
 
       - An object with a property `message` is a *simple display message* where
         the property value is the message.
-      - An object with a property `diagnostics` contains diagnotics for a
+      - An object with a property `diagnostics` contains diagnostics for a
         project file. The value of the property is described below.
     items:
       $ref: '#/definitions/Message'
@@ -633,9 +675,9 @@ definitions:
       - filepath
       - diagnostics
     properties:
-      filpath:
+      filepath:
         $ref: '#/definitions/FilePath'
-      diagnotics:
+      diagnostics:
         type: array
         items:
           $ref: "#/definitions/DiagnosticData"
@@ -659,7 +701,7 @@ paths:
             Call when the user closes a buffer that was previously known to be
             open. Closing buffers is important to limit resource usage.
           - `BufferVisit` (optional)
-            Call when the user focusses on a buffer that is already known.
+            Call when the user focuses on a buffer that is already known.
             *Note*: The `ultisnips_snippets` property is optional when firing
             calling this event. Otherwise it is ignored.
           - `InsertLeave` (optional)
@@ -668,6 +710,8 @@ paths:
           - `CurrentIdentifierFinished` (optional)
             Call when the user finishes typing what appears to the client to be
             an identifier.
+          - `FileSave`
+            Call when the user writes to a file on disk. (optional)
       produces:
         - application/json
       parameters:
@@ -711,27 +755,29 @@ paths:
                   - CurrentIdentifierFinished
                 description: The event that occurred.
               ultisnips_snippets:
-                type: object
-                description: |-
-                  *Optional when `event_name` is BufferVisit*
-                  Supplies the ultisips snippets known for the current
-                  filetypes. Can be used to supply any other type of additional
-                  completion suggestions generated by the client.
-                required:
-                  - trigger
-                  - description
-                properties:
-                  trigger:
-                    type: string
-                    description: |-
-                      The text to insert in order to trigger the snippet. When
-                      supplying non-ultisnips suggestions, this is the text
-                      to be inserted.
-                  description:
-                    type: string
-                    description: |-
-                      Additional text to display in the completion menu, such
-                      as a summary of the snippet to be inserted.
+                type: array
+                items:
+                  type: object
+                  description: |-
+                    *Optional when `event_name` is BufferVisit*
+                    Supplies the ultisips snippets known for the current
+                    filetypes. Can be used to supply any other type of additional
+                    completion suggestions generated by the client.
+                  required:
+                    - trigger
+                    - description
+                  properties:
+                    trigger:
+                      type: string
+                      description: |-
+                        The text to insert in order to trigger the snippet. When
+                        supplying non-ultisnips suggestions, this is the text
+                        to be inserted.
+                    description:
+                      type: string
+                      description: |-
+                        Additional text to display in the completion menu, such
+                        as a summary of the snippet to be inserted.
             example:
               line_num: 10
               column_num: 20
@@ -921,6 +967,62 @@ paths:
           description: An error occurred.
           schema:
             $ref: "#/definitions/ExceptionResponse"
+  /resolve_completion:
+    post:
+      summary: Resolve detailed_info for a completion item
+      description: |-
+        Given the `resolve` ID for a completion item, returns the item with
+        additional data filled in.
+
+        Note, the supplied `request_data` must match exactly the `request_data`
+        for the corresponding completion request, except with the `resolve` key
+        filled in with the `resolve` ID from the completion item's `extra_data`.
+      produces:
+        - application/json
+      parameters:
+        - name: request_data
+          in: body
+          description: |-
+            The context data, including the current cursor position, and details
+            of dirty buffers.
+          required: true
+          schema:
+            type: object
+            required:
+              - line_num
+              - column_num
+              - filepath
+              - file_data
+              - resolve
+            properties:
+              line_num:
+                $ref: "#/definitions/LineNumber"
+              column_num:
+                $ref: "#/definitions/ColumnNumber"
+              filepath:
+                $ref: "#/definitions/FilePath"
+              file_data:
+                $ref: "#/definitions/FileDataMap"
+              completer_target:
+                $ref: "#/definitions/CompleterTarget"
+              working_dir:
+                $ref: "#/definitions/WorkingDirectory"
+              extra_conf_data:
+                $ref: "#/definitions/ExtraConfData"
+              resolve:
+                description: |-
+                  The 'resolve' key from the 'extra_data' in the completion item
+                  to resolve.
+      responses:
+        200:
+          description: The list of completion suggestions.
+          schema:
+            $ref: "#/definitions/ResolveCompletionResponse"
+        500:
+          description: An error occurred.
+          schema:
+            $ref: "#/definitions/ExceptionResponse"
+
 
   /signature_help_available:
     get:
@@ -1067,25 +1169,33 @@ paths:
                           description: |
                             The full signature text, including parameters
                           type: string
+                        documentation:
+                          description: |
+                            Human readable docstring of the signature.
+                          type: string
                         parameters:
                           description: List of parameters
                           type: array
                           items:
                             type: object
                             properties:
-                             label:
-                               description: |
-                                 The array of offsets representing an inclusive
-                                 start and exclusive end within the parameter's
-                                 containing signature label.
+                              documentation:
+                                description: |
+                                  Human readable docstring of the parameter.
+                                type: string
+                              label:
+                                description: |
+                                  The array of offsets representing an inclusive
+                                  start and exclusive end within the parameter's
+                                  containing signature label.
 
-                                 Offsets are byte offsets into the UTF8 encoded
-                                 string 'label'
-                               type: array
-                               maxItems: 2
-                               minItems: 2
-                               items:
-                                 type: integer
+                                  Offsets are byte offsets into the UTF8 encoded
+                                  string 'label'
+                                type: array
+                                maxItems: 2
+                                minItems: 2
+                                items:
+                                  type: integer
                       required:
                         - label
                         - parameters
@@ -1158,6 +1268,27 @@ paths:
           schema:
             $ref: "#/definitions/ExceptionResponse"
 
+  /ready:
+    get:
+      summary: Check if the server is ready.
+      description: |-
+        Return `true` if the (sub)server is ready, `false` otherwise. The client
+        should use this endpoint to keep the server alive.
+      produces:
+        - application/json
+      parameters:
+        - name: subserver
+          in: query
+          description: |-
+            Subserver filetype for which the request is made. If a subserver
+            supports multiple filetypes, the parameter may hold any one of them.
+          required: false
+          type: string
+      responses:
+        200:
+          description: Server is ready.
+          schema:
+            $ref: "#/definitions/YesNo"
   /healthy:
     get:
       summary: Check if the server is healthy.
@@ -1180,7 +1311,7 @@ paths:
 
   # We don't document the /ready handler as it is only for testing.
 
-  /semantic_completer_available:
+  /semantic_completion_available:
     post:
       summary: Determine if semantic completion is available for current buffer.
       produces:
@@ -1490,7 +1621,7 @@ paths:
               - message: 'Initializing: Done.'
               - diagonostics:
                   filepath: '/file'
-                  diagnotics:
+                  diagnostics:
                   - ranges:
                     - start: { line_num: 10, column_num: 11, filepath: '/file' }
                       end: { line_num: 10, column_num: 20, filepath: '/file' }
@@ -1515,6 +1646,15 @@ paths:
           description: An error occurred.
           schema:
             $ref: "#/definitions/ExceptionResponse"
+  /shutdown:
+    post:
+      summary: Request ycmd to shut down.
+      produces:
+        application/json
+      responses:
+        200:
+          schema:
+            $ref: "#/definitions/AlwaysYes"
   /resolve_fixit:
     post:
       summary: Resolve an incomplete FixIt.
@@ -1565,6 +1705,6 @@ paths:
           schema:
             $ref: "#/definitions/SubcommandResponse"
         500:
-          description: An error occured
+          description: An error occurred
           schema:
             $ref: "#/definitions/ExceptionResponse"

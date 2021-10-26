@@ -1,12 +1,11 @@
-from os.path import join, sep as s, dirname
+from os.path import join, sep as s, dirname, expanduser
 import os
-import sys
 from textwrap import dedent
 
 import pytest
 
 from ..helpers import root_dir
-from jedi.api.helpers import start_match, fuzzy_match
+from jedi.api.helpers import _start_match, _fuzzy_match
 
 
 def test_in_whitespace(Script):
@@ -21,7 +20,7 @@ def test_empty_init(Script):
     code = dedent('''\
     class X(object): pass
     X(''')
-    assert Script(code).complete()
+    assert not Script(code).complete()
 
 
 def test_in_empty_space(Script):
@@ -75,15 +74,24 @@ def test_loading_unicode_files_with_bad_global_charset(Script, monkeypatch, tmpd
     dirname = str(tmpdir.mkdir('jedi-test'))
     filename1 = join(dirname, 'test1.py')
     filename2 = join(dirname, 'test2.py')
-    if sys.version_info < (3, 0):
-        data = "# coding: latin-1\nfoo = 'm\xf6p'\n"
-    else:
-        data = "# coding: latin-1\nfoo = 'm\xf6p'\n".encode("latin-1")
+    data = "# coding: latin-1\nfoo = 'm\xf6p'\n".encode("latin-1")
 
     with open(filename1, "wb") as f:
         f.write(data)
     s = Script("from test1 import foo\nfoo.", path=filename2)
     s.complete(line=2, column=4)
+
+
+def test_complete_expanduser(Script):
+    possibilities = os.scandir(expanduser('~'))
+    non_dots = [p for p in possibilities if not p.name.startswith('.') and len(p.name) > 1]
+    item = non_dots[0]
+    line = "'~%s%s'" % (os.sep, item.name)
+    s = Script(line)
+    expected_name = item.name
+    if item.is_dir():
+        expected_name += os.path.sep
+    assert expected_name in [c.name for c in s.complete(column=len(line)-1)]
 
 
 def test_fake_subnodes(Script):
@@ -131,9 +139,6 @@ def test_in_comment_before_string(Script):
 
 
 def test_async(Script, environment):
-    if environment.version_info < (3, 5):
-        pytest.skip()
-
     code = dedent('''
         foo = 3
         async def x():
@@ -216,8 +221,8 @@ current_dirname = os.path.basename(dirname(dirname(dirname(__file__))))
         ('example.py', 'rb"' + join('..', current_dirname, 'tes'), None, ['t' + s]),
 
         # Absolute paths
-        (None, '"' + join(root_dir, 'test', 'test_ca'), None, ['che.py"']),
-        (None, '"%s"' % join(root_dir, 'test', 'test_ca'), len(root_dir) + 14, ['che.py']),
+        (None, f'"{root_dir.joinpath("test", "test_ca")}', None, ['che.py"']),
+        (None, f'"{root_dir.joinpath("test", "test_ca")}"', len(str(root_dir)) + 14, ['che.py']),
 
         # Longer quotes
         ('example.py', 'r"""test', None, [s]),
@@ -235,9 +240,7 @@ current_dirname = os.path.basename(dirname(dirname(dirname(__file__))))
         ('example.py', 'x = f("te" + "st"', 16, [s]),
         ('example.py', 'x = f("te" + "st")', 16, [s]),
         ('example.py', 'x = f("t" + "est")', 16, [s]),
-        # This is actually not correct, but for now leave it here, because of
-        # Python 2.
-        ('example.py', 'x = f(b"t" + "est")', 17, [s]),
+        ('example.py', 'x = f(b"t" + "est")', 17, []),
         ('example.py', '"test" + "', None, [s]),
 
         # __file__
@@ -286,6 +289,9 @@ current_dirname = os.path.basename(dirname(dirname(dirname(__file__))))
         (f2, os_path + 'join(["tes"]', 10, ['t' + s]),
         (f2, os_path + 'join(["tes"])', 10, ['t' + s]),
         (f2, os_path + 'join("test", "test_cac" + x,', 22, ['he.py']),
+
+        # GH #1528
+        (f2, "'a' 'b'", 4, Ellipsis),
     ]
 )
 def test_file_path_completions(Script, file, code, column, expected):
@@ -293,76 +299,79 @@ def test_file_path_completions(Script, file, code, column, expected):
     if isinstance(column, tuple):
         line, column = column
     comps = Script(code, path=file).complete(line=line, column=column)
-    if expected == "A LOT":
+    if expected is Ellipsis:
         assert len(comps) > 100  # This is basically global completions.
     else:
         assert [c.complete for c in comps] == expected
 
 
+def test_file_path_should_have_completions(Script):
+    assert Script('r"').complete()  # See GH #1503
+
+
 _dict_keys_completion_tests = [
-        ('ints[', 5, ['1', '50', Ellipsis]),
-        ('ints[]', 5, ['1', '50', Ellipsis]),
-        ('ints[1]', 5, ['1', '50', Ellipsis]),
-        ('ints[1]', 6, ['']),
-        ('ints[1', 5, ['1', '50', Ellipsis]),
-        ('ints[1', 6, ['']),
+    ('ints[', 5, ['1', '50', Ellipsis]),
+    ('ints[]', 5, ['1', '50', Ellipsis]),
+    ('ints[1]', 5, ['1', '50', Ellipsis]),
+    ('ints[1]', 6, ['']),
+    ('ints[1', 5, ['1', '50', Ellipsis]),
+    ('ints[1', 6, ['']),
 
-        ('ints[5]', 5, ['1', '50', Ellipsis]),
-        ('ints[5]', 6, ['0']),
-        ('ints[50', 5, ['1', '50', Ellipsis]),
-        ('ints[5', 6, ['0']),
-        ('ints[ 5', None, ['0']),
-        ('ints [ 5', None, ['0']),
-        ('ints[50', 6, ['0']),
-        ('ints[50', 7, ['']),
+    ('ints[5]', 5, ['1', '50', Ellipsis]),
+    ('ints[5]', 6, ['0']),
+    ('ints[50', 5, ['1', '50', Ellipsis]),
+    ('ints[5', 6, ['0']),
+    ('ints[ 5', None, ['0']),
+    ('ints [ 5', None, ['0']),
+    ('ints[50', 6, ['0']),
+    ('ints[50', 7, ['']),
 
-        ('strs[', 5, ["'asdf'", "'fbar'", "'foo'", Ellipsis]),
-        ('strs[]', 5, ["'asdf'", "'fbar'", "'foo'", Ellipsis]),
-        ("strs['", 6, ["asdf'", "fbar'", "foo'"]),
-        ("strs[']", 6, ["asdf'", "fbar'", "foo'"]),
-        ('strs["]', 6, ['asdf"', 'fbar"', 'foo"']),
-        ('strs["""]', 6, ['asdf', 'fbar', 'foo']),
-        ('strs["""]', 8, ['asdf"""', 'fbar"""', 'foo"""']),
-        ('strs[b"]', 8, []),
-        ('strs[r"asd', 10, ['f"']),
-        ('strs[r"asd"', 10, ['f']),
-        ('strs[R"asd', 10, ['f"']),
-        ('strs[ R"asd', None, ['f"']),
-        ('strs[\tR"asd', None, ['f"']),
-        ('strs[\nR"asd', None, ['f"']),
-        ('strs[f"asd', 10, []),
-        ('strs[br"""asd', 13, ['f"""']),
-        ('strs[br"""asd"""', 13, ['f']),
-        ('strs[ \t"""asd"""', 13, ['f']),
+    ('strs[', 5, ["'asdf'", "'fbar'", "'foo'", Ellipsis]),
+    ('strs[]', 5, ["'asdf'", "'fbar'", "'foo'", Ellipsis]),
+    ("strs['", 6, ["asdf'", "fbar'", "foo'"]),
+    ("strs[']", 6, ["asdf'", "fbar'", "foo'"]),
+    ('strs["]', 6, ['asdf"', 'fbar"', 'foo"']),
+    ('strs["""]', 6, ['asdf', 'fbar', 'foo']),
+    ('strs["""]', 8, ['asdf"""', 'fbar"""', 'foo"""']),
+    ('strs[b"]', 8, []),
+    ('strs[r"asd', 10, ['f"']),
+    ('strs[r"asd"', 10, ['f']),
+    ('strs[R"asd', 10, ['f"']),
+    ('strs[ R"asd', None, ['f"']),
+    ('strs[\tR"asd', None, ['f"']),
+    ('strs[\nR"asd', None, ['f"']),
+    ('strs[f"asd', 10, []),
+    ('strs[br"""asd', 13, ['f"""']),
+    ('strs[br"""asd"""', 13, ['f']),
+    ('strs[ \t"""asd"""', 13, ['f']),
 
-        ('strs["f', 7, ['bar"', 'oo"']),
-        ('strs["f"', 7, ['bar', 'oo']),
-        ('strs["f]', 7, ['bar"', 'oo"']),
-        ('strs["f"]', 7, ['bar', 'oo']),
+    ('strs["f', 7, ['bar"', 'oo"']),
+    ('strs["f"', 7, ['bar', 'oo']),
+    ('strs["f]', 7, ['bar"', 'oo"']),
+    ('strs["f"]', 7, ['bar', 'oo']),
 
-        ('mixed[', 6, [r"'a\\sdf'", '1', '1.1', "b'foo'", Ellipsis]),
-        ('mixed[1', 7, ['', '.1']),
-        ('mixed[Non', 9, ['e']),
+    ('mixed[', 6, [r"'a\\sdf'", '1', '1.1', "b'foo'", Ellipsis]),
+    ('mixed[1', 7, ['', '.1']),
+    ('mixed[Non', 9, ['e']),
 
-        ('casted["f', 9, ['3"', 'bar"', 'oo"']),
-        ('casted["f"', 9, ['3', 'bar', 'oo']),
-        ('casted["f3', 10, ['"']),
-        ('casted["f3"', 10, ['']),
-        ('casted_mod["f', 13, ['3"', 'bar"', 'oo"', 'ull"', 'uuu"']),
+    ('casted["f', 9, ['3"', 'bar"', 'oo"']),
+    ('casted["f"', 9, ['3', 'bar', 'oo']),
+    ('casted["f3', 10, ['"']),
+    ('casted["f3"', 10, ['']),
+    ('casted_mod["f', 13, ['3"', 'bar"', 'oo"', 'ull"', 'uuu"']),
 
-        ('keywords["', None, ['a"']),
-        ('keywords[Non', None, ['e']),
-        ('keywords[Fa', None, ['lse']),
-        ('keywords[Tr', None, ['ue']),
-        ('keywords[str', None, ['', 's']),
+    ('keywords["', None, ['a"']),
+    ('keywords[Non', None, ['e']),
+    ('keywords[Fa', None, ['lse']),
+    ('keywords[Tr', None, ['ue']),
+    ('keywords[str', None, ['', 's']),
 ]
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'added_code, column, expected', _dict_keys_completion_tests
 )
-def test_dict_keys_completions(Script, added_code, column, expected, skip_pre_python36):
+def test_dict_keys_completions(Script, added_code, column, expected):
     code = dedent(r'''
         ints = {1: ''}
         ints[50] = 3.0
@@ -374,8 +383,7 @@ def test_dict_keys_completions(Script, added_code, column, expected, skip_pre_py
         casted_mod["full"] = 8
         keywords = {None: 1, False: 2, "a": 3}
         ''')
-    line = None
-    comps = Script(code + added_code).complete(line=line, column=column)
+    comps = Script(code + added_code).complete(column=column)
     if Ellipsis in expected:
         # This means that global completions are part of this, so filter all of
         # that out.
@@ -385,16 +393,20 @@ def test_dict_keys_completions(Script, added_code, column, expected, skip_pre_py
     assert [c.complete for c in comps] == expected
 
 
+def test_dict_keys_in_weird_case(Script):
+    assert Script('a[\n# foo\nx]').complete(line=2, column=0)
+
+
 def test_start_match():
-    assert start_match('Condition', 'C')
+    assert _start_match('Condition', 'C')
 
 
 def test_fuzzy_match():
-    assert fuzzy_match('Condition', 'i')
-    assert not fuzzy_match('Condition', 'p')
-    assert fuzzy_match('Condition', 'ii')
-    assert not fuzzy_match('Condition', 'Ciito')
-    assert fuzzy_match('Condition', 'Cdiio')
+    assert _fuzzy_match('Condition', 'i')
+    assert not _fuzzy_match('Condition', 'p')
+    assert _fuzzy_match('Condition', 'ii')
+    assert not _fuzzy_match('Condition', 'Ciito')
+    assert _fuzzy_match('Condition', 'Cdiio')
 
 
 def test_ellipsis_completion(Script):
@@ -431,8 +443,9 @@ def test_completion_cache(Script, module_injector):
     assert cls.docstring() == 'foo()\n\ndoc2'
 
 
-def test_typing_module_completions(Script):
-    for c in Script('import typing; typing.').completions():
+@pytest.mark.parametrize('module', ['typing', 'os'])
+def test_module_completions(Script, module):
+    for c in Script('import {module}; {module}.'.format(module=module)).complete():
         # Just make sure that there are no errors
         c.type
         c.docstring()

@@ -16,7 +16,7 @@
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "CodePoint.h"
-#include "CodePointRepository.h"
+#include "Repository.h"
 #include "TestUtils.h"
 
 #include <array>
@@ -45,15 +45,15 @@ std::ostream& operator<<( std::ostream& os,
 class CodePointTest : public TestWithParam< TextCodePointPair > {
 protected:
   CodePointTest()
-    : repo_( CodePointRepository::Instance() ) {
+    : repo_( Repository< CodePoint >::Instance() ) {
   }
 
   virtual void SetUp() {
-    repo_.ClearCodePoints();
+    repo_.ClearElements();
     pair_ = GetParam();
   }
 
-  CodePointRepository &repo_;
+  Repository< CodePoint > &repo_;
   TextCodePointPair pair_;
 };
 
@@ -65,7 +65,7 @@ TEST_P( CodePointTest, PropertiesAreCorrect ) {
 
 
 // Tests mostly based on the table
-// http://www.unicode.org/reports/tr29/#Grapheme_Cluster_Break_Property_Values
+// http://www.unicode.org/reports/tr29/tr29-37.html#Grapheme_Cluster_Break_Property_Values
 const TextCodePointPair tests[] = {
   { "\r", { "\r", "\r", "\r", false, false, false, BreakProperty::CR } },
 
@@ -184,6 +184,6 @@ const TextCodePointPair tests[] = {
 };
 
 
-INSTANTIATE_TEST_CASE_P( UnicodeTest, CodePointTest, ValuesIn( tests ) );
+INSTANTIATE_TEST_SUITE_P( UnicodeTest, CodePointTest, ValuesIn( tests ) );
 
 } // namespace YouCompleteMe

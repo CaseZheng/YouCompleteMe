@@ -15,11 +15,11 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-import ycm_core
 import os
 import inspect
 from ycmd import extra_conf_store
-from ycmd.utils import ( AbsoluatePath,
+from ycmd.utils import ( AbsolutePath,
+                         ImportCore,
                          OnMac,
                          OnWindows,
                          PathsToAllParentFolders,
@@ -27,6 +27,7 @@ from ycmd.utils import ( AbsoluatePath,
                          ToUnicode,
                          CLANG_RESOURCE_DIR )
 from ycmd.responses import NoExtraConfDetected
+ycm_core = ImportCore()
 
 # -include-pch and --sysroot= must be listed before -include and --sysroot
 # respectively because the latter is a prefix of the former (and the algorithm
@@ -214,7 +215,7 @@ class Flags:
     # compilation database already for that path, or if a compile_commands.json
     # file exists in that directory.
     for folder in PathsToAllParentFolders( file_dir ):
-      # Try/catch to syncronise access to cache
+      # Try/catch to synchronise access to cache
       try:
         return self.compilation_database_dir_map[ folder ]
       except KeyError:
@@ -304,7 +305,7 @@ def PrepareFlagsForClang( flags,
   vector = ycm_core.StringVector()
   for flag in flags:
     vector.append( flag )
-  return vector
+  return ycm_core.StringVector( flags )
 
 
 def _RemoveXclangFlags( flags ):
@@ -345,11 +346,11 @@ def _AddLanguageFlagWhenAppropriate( flags, enable_windows_style_flags ):
   """When flags come from the compile_commands.json file, the flag preceding the
   first flag starting with a dash is usually the path to the compiler that
   should be invoked. Since LibClang does not deduce the language from the
-  compiler name, we explicitely set the language to C++ if the compiler is a C++
-  one (g++, clang++, etc.). We also set the language to CUDA if any of the
-  source files has a .cu or .cuh extension. Otherwise, we let LibClang guess the
-  language from the file extension. This handles the case where the .h extension
-  is used for C++ headers."""
+  compiler name, we explicitly set the language to C++ if the compiler is a C++
+  one (g++, clang++, etc.). We skip setting the language to CUDA if any of the
+  source files has a .cu or .cuh extension, because LLVM11 does that for us.
+  Otherwise, we let LibClang guess the language from the file extension. This
+  handles the case where the .h extension is used for C++ headers."""
 
   flags = _RemoveFlagsPrecedingCompiler( flags, enable_windows_style_flags )
 
@@ -363,11 +364,10 @@ def _AddLanguageFlagWhenAppropriate( flags, enable_windows_style_flags ):
   if first_flag.startswith( '-' ):
     return flags
 
-  # Explicitly set the language to CUDA to avoid setting it to C++ when
-  # compiling CUDA source files with a C++ compiler
+  # Libclang has already added `-xcuda` for us.
   if any( fl.endswith( '.cu' ) or fl.endswith( '.cuh' )
           for fl in reversed( flags ) ):
-    return [ first_flag, '-x', 'cuda' ] + flags[ 1: ]
+    return flags
 
   # NOTE: This is intentionally NOT checking for enable_windows_style_flags.
   #
@@ -549,11 +549,15 @@ def AddMacIncludePaths( flags ):
        use_standard_cpp_includes and
        use_standard_system_includes and
        use_libcpp ):
-    if toolchain:
+    # Sometimes apple puts the stdlib in the platform, but it's also always in
+    # the toolchain. Pickt he platform one if it's there, else the toolchain
+    # one.
+    platform_stdlib = os.path.join( sysroot, 'usr/include/c++/v1' )
+    if os.path.exists( platform_stdlib ):
+      flags.extend( [ '-isystem', platform_stdlib ] )
+    elif toolchain:
       flags.extend( [
         '-isystem', os.path.join( toolchain, 'usr/include/c++/v1' ) ] )
-    flags.extend( [
-      '-isystem', os.path.join( sysroot, 'usr/include/c++/v1' ) ] )
 
   if use_standard_system_includes:
     flags.extend( [
@@ -610,7 +614,7 @@ def _MakeRelativePathsInFlagsAbsolute( flags, working_directory ):
 
     if make_next_absolute:
       make_next_absolute = False
-      new_flag = AbsoluatePath( flag, working_directory )
+      new_flag = AbsolutePath( flag, working_directory )
     else:
       for path_flag in path_flags:
         # Single dash argument alone, e.g. -isysroot <path>
@@ -622,8 +626,8 @@ def _MakeRelativePathsInFlagsAbsolute( flags, working_directory ):
         # or double-dash argument, e.g. --isysroot=<path>
         if flag.startswith( path_flag ):
           path = flag[ len( path_flag ): ]
-          path = AbsoluatePath( path, working_directory )
-          new_flag = '{0}{1}'.format( path_flag, path )
+          path = AbsolutePath( path, working_directory )
+          new_flag = f'{ path_flag }{ path }'
           break
 
     if new_flag:

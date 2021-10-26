@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
+#include "Candidate.h"
 #include "CodePoint.h"
 #include "IdentifierCompleter.h"
 #include "PythonSupport.h"
@@ -37,7 +38,7 @@
 namespace py = pybind11;
 using namespace YouCompleteMe;
 
-bool HasClangSupport() {
+static bool HasClangSupport() {
 #ifdef USE_CLANG_COMPLETER
   return true;
 #else
@@ -45,14 +46,14 @@ bool HasClangSupport() {
 #endif // USE_CLANG_COMPLETER
 }
 
-PYBIND11_MAKE_OPAQUE( std::vector< std::string > );
+PYBIND11_MAKE_OPAQUE( std::vector< std::string > )
 #ifdef USE_CLANG_COMPLETER
-PYBIND11_MAKE_OPAQUE( std::vector< UnsavedFile > );
-PYBIND11_MAKE_OPAQUE( std::vector< Range > );
-PYBIND11_MAKE_OPAQUE( std::vector< CompletionData > );
-PYBIND11_MAKE_OPAQUE( std::vector< Diagnostic > );
-PYBIND11_MAKE_OPAQUE( std::vector< FixIt > );
-PYBIND11_MAKE_OPAQUE( std::vector< FixItChunk > );
+PYBIND11_MAKE_OPAQUE( std::vector< UnsavedFile > )
+PYBIND11_MAKE_OPAQUE( std::vector< Range > )
+PYBIND11_MAKE_OPAQUE( std::vector< CompletionData > )
+PYBIND11_MAKE_OPAQUE( std::vector< Diagnostic > )
+PYBIND11_MAKE_OPAQUE( std::vector< FixIt > )
+PYBIND11_MAKE_OPAQUE( std::vector< FixItChunk > )
 #endif // USE_CLANG_COMPLETER
 
 PYBIND11_MODULE( ycm_core, mod )
@@ -74,8 +75,8 @@ PYBIND11_MODULE( ycm_core, mod )
 
   py::class_< IdentifierCompleter >( mod, "IdentifierCompleter" )
     .def( py::init<>() )
-    .def( "AddIdentifiersToDatabase",
-          &IdentifierCompleter::AddIdentifiersToDatabase,
+    .def( "AddSingleIdentifierToDatabase",
+          &IdentifierCompleter::AddSingleIdentifierToDatabase,
           py::call_guard< py::gil_scoped_release >() )
     .def( "ClearForFileAndAddIdentifiersToDatabase",
           &IdentifierCompleter::ClearForFileAndAddIdentifiersToDatabase,
@@ -197,7 +198,10 @@ PYBIND11_MODULE( ycm_core, mod )
     .def( py::init<>() )
     .def_readonly( "chunks", &FixIt::chunks )
     .def_readonly( "location", &FixIt::location )
-    .def_readonly( "text", &FixIt::text );
+    .def_readonly( "text", &FixIt::text )
+    .def_property_readonly( "kind", [](const py::handle) {
+      return py::none();
+    });
 
   py::bind_vector< std::vector< FixIt > >( mod, "FixItVector" );
 

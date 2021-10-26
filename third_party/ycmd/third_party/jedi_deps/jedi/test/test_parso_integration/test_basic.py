@@ -70,7 +70,7 @@ def test_add_to_end(Script):
         "        self."
 
     def complete(code, line=None, column=None):
-        script = Script(code, 'example.py')
+        script = Script(code, path='example.py')
         assert script.complete(line, column)
 
     complete(a, 7, 12)
@@ -87,9 +87,6 @@ def test_tokenizer_with_string_literal_backslash(Script):
 
 
 def test_ellipsis_without_getitem(Script, environment):
-    if environment.version_info.major == 2:
-        pytest.skip('In 2.7 Ellipsis can only be used like x[...]')
-
     def_, = Script('x=...;x').infer()
 
     assert def_.name == 'ellipsis'

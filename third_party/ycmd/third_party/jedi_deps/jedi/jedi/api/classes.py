@@ -1,21 +1,31 @@
 """
-The :mod:`jedi.api.classes` module contains the return classes of the API.
-These classes are the much bigger part of the whole API, because they contain
-the interesting information about completion and goto operations.
+There are a couple of classes documented in here:
+
+- :class:`.BaseName` as an abstact base class for almost everything.
+- :class:`.Name` used in a lot of places
+- :class:`.Completion` for completions
+- :class:`.BaseSignature` as a base class for signatures
+- :class:`.Signature` for :meth:`.Script.get_signatures` only
+- :class:`.ParamName` used for parameters of signatures
+- :class:`.Refactoring` for refactorings
+- :class:`.SyntaxError` for :meth:`.Script.get_syntax_errors` only
+
+These classes are the much biggest part of the API, because they contain
+the interesting information about all operations.
 """
 import re
-import sys
-import warnings
+from pathlib import Path
+from typing import Optional
 
-from parso.python.tree import search_ancestor
+from parso.tree import search_ancestor
 
 from jedi import settings
 from jedi import debug
 from jedi.inference.utils import unite
 from jedi.cache import memoize_method
-from jedi.inference import imports
-from jedi.inference.imports import ImportName
-from jedi.inference.gradual.typeshed import StubModuleValue
+from jedi.inference.compiled.mixed import MixedName
+from jedi.inference.names import ImportName, SubModuleName
+from jedi.inference.gradual.stub_value import StubModuleValue
 from jedi.inference.gradual.conversion import convert_names, convert_values
 from jedi.inference.base_value import ValueSet
 from jedi.api.keywords import KeywordName
@@ -32,18 +42,21 @@ def defined_names(inference_state, context):
     List sub-definitions (e.g., methods in class).
 
     :type scope: Scope
-    :rtype: list of Definition
+    :rtype: list of Name
     """
     filter = next(context.get_filters())
     names = [name for name in filter.values()]
-    return [Definition(inference_state, n) for n in _sort_names_by_start_pos(names)]
+    return [Name(inference_state, n) for n in _sort_names_by_start_pos(names)]
 
 
 def _values_to_definitions(values):
-    return [Definition(c.inference_state, c.name) for c in values]
+    return [Name(c.inference_state, c.name) for c in values]
 
 
-class BaseDefinition(object):
+class BaseName:
+    """
+    The base class for all definitions, completions and signatures.
+    """
     _mapping = {
         'posixpath': 'os.path',
         'riscospath': 'os.path',
@@ -57,7 +70,6 @@ class BaseDefinition(object):
         '_collections': 'collections',
         '_socket': 'socket',
         '_sqlite3': 'sqlite3',
-        '__builtin__': 'builtins',
     }
 
     _tuple_mapping = dict((tuple(k.split('.')), v) for (k, v) in {
@@ -80,13 +92,17 @@ class BaseDefinition(object):
         return self._name.get_root_context()
 
     @property
-    def module_path(self):
-        """Shows the file path of a module. e.g. ``/usr/lib/python2.7/os.py``"""
+    def module_path(self) -> Optional[Path]:
+        """
+        Shows the file path of a module. e.g. ``/usr/lib/python3.9/os.py``
+        """
         module = self._get_module_context()
         if module.is_stub() or not module.is_compiled():
             # Compiled modules should not return a module path even if they
             # have one.
-            return self._get_module_context().py__file__()
+            path: Optional[Path] = self._get_module_context().py__file__()
+            if path is not None:
+                return path
 
         return None
 
@@ -111,7 +127,6 @@ class BaseDefinition(object):
         to Jedi, :meth:`jedi.Script.infer` should return a list of
         definition for ``sys``, ``f``, ``C`` and ``x``.
 
-        >>> from jedi._compatibility import no_unicode_pprint
         >>> from jedi import Script
         >>> source = '''
         ... import keyword
@@ -137,15 +152,15 @@ class BaseDefinition(object):
         so that it is easy to relate the result to the source code.
 
         >>> defs = sorted(defs, key=lambda d: d.line)
-        >>> no_unicode_pprint(defs)  # doctest: +NORMALIZE_WHITESPACE
-        [<Definition full_name='keyword', description='module keyword'>,
-         <Definition full_name='__main__.C', description='class C'>,
-         <Definition full_name='__main__.D', description='instance D'>,
-         <Definition full_name='__main__.f', description='def f'>]
+        >>> print(defs)  # doctest: +NORMALIZE_WHITESPACE
+        [<Name full_name='keyword', description='module keyword'>,
+         <Name full_name='__main__.C', description='class C'>,
+         <Name full_name='__main__.D', description='instance D'>,
+         <Name full_name='__main__.f', description='def f'>]
 
         Finally, here is what you can get from :attr:`type`:
 
-        >>> defs = [str(d.type) for d in defs]  # It's unicode and in Py2 has u before it.
+        >>> defs = [d.type for d in defs]
         >>> defs[0]
         'module'
         >>> defs[1]
@@ -155,8 +170,8 @@ class BaseDefinition(object):
         >>> defs[3]
         'function'
 
-        Valid values for are ``module``, ``class``, ``instance``, ``function``,
-        ``param``, ``path`` and ``keyword``.
+        Valid values for type are ``module``, ``class``, ``instance``, ``function``,
+        ``param``, ``path``, ``keyword``, ``property`` and ``statement``.
 
         """
         tree_name = self._name.tree_name
@@ -168,7 +183,7 @@ class BaseDefinition(object):
                     tree_name.is_definition():
                 resolve = True
 
-        if isinstance(self._name, imports.SubModuleName) or resolve:
+        if isinstance(self._name, SubModuleName) or resolve:
             for value in self._name.infer():
                 return value.api_type
         return self._name.api_type
@@ -176,7 +191,8 @@ class BaseDefinition(object):
     @property
     def module_name(self):
         """
-        The module name.
+        The module name, a bit similar to what ``__name__`` is in a random
+        Python module.
 
         >>> from jedi import Script
         >>> source = 'import json'
@@ -188,7 +204,9 @@ class BaseDefinition(object):
         return self._get_module_context().py__name__()
 
     def in_builtin_module(self):
-        """Whether this is a builtin module."""
+        """
+        Returns True, if this is a builtin module.
+        """
         value = self._get_module_context().get_value()
         if isinstance(value, StubModuleValue):
             return any(v.is_compiled() for v in value.non_stub_value_set)
@@ -210,6 +228,39 @@ class BaseDefinition(object):
             return None
         return start_pos[1]
 
+    def get_definition_start_position(self):
+        """
+        The (row, column) of the start of the definition range. Rows start with
+        1, columns start with 0.
+
+        :rtype: Optional[Tuple[int, int]]
+        """
+        if self._name.tree_name is None:
+            return None
+        definition = self._name.tree_name.get_definition()
+        if definition is None:
+            return self._name.start_pos
+        return definition.start_pos
+
+    def get_definition_end_position(self):
+        """
+        The (row, column) of the end of the definition range. Rows start with
+        1, columns start with 0.
+
+        :rtype: Optional[Tuple[int, int]]
+        """
+        if self._name.tree_name is None:
+            return None
+        definition = self._name.tree_name.get_definition()
+        if definition is None:
+            return self._name.tree_name.end_pos
+        if self.type in ("function", "class"):
+            last_leaf = definition.get_last_leaf()
+            if last_leaf.type == "newline":
+                return last_leaf.get_previous_leaf().end_pos
+            return last_leaf.end_pos
+        return definition.end_pos
+
     def docstring(self, raw=False, fast=True):
         r"""
         Return a document string for this completion object.
@@ -229,8 +280,8 @@ class BaseDefinition(object):
         Document for function f.
 
         Notice that useful extra information is added to the actual
-        docstring.  For function, it is signature.  If you need
-        actual docstring, use ``raw=True`` instead.
+        docstring, e.g. function signatures are prepended to their docstrings.
+        If you need the actual docstring, use ``raw=True`` instead.
 
         >>> print(script.infer(1, len('def f'))[0].docstring(raw=True))
         Document for function f.
@@ -265,12 +316,11 @@ class BaseDefinition(object):
     @property
     def description(self):
         """
-        A description of the :class:`.Definition` object, which is heavily used
+        A description of the :class:`.Name` object, which is heavily used
         in testing. e.g. for ``isinstance`` it returns ``def isinstance``.
 
         Example:
 
-        >>> from jedi._compatibility import no_unicode_pprint
         >>> from jedi import Script
         >>> source = '''
         ... def f():
@@ -283,10 +333,10 @@ class BaseDefinition(object):
         >>> script = Script(source)  # line is maximum by default
         >>> defs = script.infer(column=3)
         >>> defs = sorted(defs, key=lambda d: d.line)
-        >>> no_unicode_pprint(defs)  # doctest: +NORMALIZE_WHITESPACE
-        [<Definition full_name='__main__.f', description='def f'>,
-         <Definition full_name='__main__.C', description='class C'>]
-        >>> str(defs[0].description)  # strip literals in python2
+        >>> print(defs)  # doctest: +NORMALIZE_WHITESPACE
+        [<Name full_name='__main__.f', description='def f'>,
+         <Name full_name='__main__.C', description='class C'>]
+        >>> str(defs[0].description)
         'def f'
         >>> str(defs[1].description)
         'class C'
@@ -341,7 +391,7 @@ class BaseDefinition(object):
 
         names = self._name.get_qualified_names(include_module_names=True)
         if names is None:
-            return names
+            return None
 
         names = list(names)
         try:
@@ -352,26 +402,40 @@ class BaseDefinition(object):
         return '.'.join(names)
 
     def is_stub(self):
+        """
+        Returns True if the current name is defined in a stub file.
+        """
         if not self._name.is_value_name:
             return False
 
         return self._name.get_root_context().is_stub()
 
-    def goto(self, **kwargs):
-        with debug.increase_indent_cm('goto for %s' % self._name):
-            return self._goto(**kwargs)
+    def is_side_effect(self):
+        """
+        Checks if a name is defined as ``self.foo = 3``. In case of self, this
+        function would return False, for foo it would return True.
+        """
+        tree_name = self._name.tree_name
+        if tree_name is None:
+            return False
+        return tree_name.is_definition() and tree_name.parent.type == 'trailer'
 
-    def goto_assignments(self, **kwargs):  # Python 2...
-        warnings.warn(
-            "Deprecated since version 0.16.0. Use .goto.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.goto(**kwargs)
+    @debug.increase_indent_cm('goto on name')
+    def goto(self, *, follow_imports=False, follow_builtin_imports=False,
+             only_stubs=False, prefer_stubs=False):
 
-    def _goto(self, follow_imports=False, follow_builtin_imports=False,
-              only_stubs=False, prefer_stubs=False):
+        """
+        Like :meth:`.Script.goto` (also supports the same params), but does it
+        for the current name. This is typically useful if you are using
+        something like :meth:`.Script.get_names()`.
 
+        :param follow_imports: The goto call will follow imports.
+        :param follow_builtin_imports: If follow_imports is True will try to
+            look up names in builtins (i.e. compiled or extension modules).
+        :param only_stubs: Only return stubs for this goto call.
+        :param prefer_stubs: Prefer stubs to Python objects for this goto call.
+        :rtype: list of :class:`Name`
+        """
         if not self._name.is_value_name:
             return []
 
@@ -383,14 +447,27 @@ class BaseDefinition(object):
             only_stubs=only_stubs,
             prefer_stubs=prefer_stubs,
         )
-        return [self if n == self._name else Definition(self._inference_state, n)
+        return [self if n == self._name else Name(self._inference_state, n)
                 for n in names]
 
-    def infer(self, **kwargs):  # Python 2...
-        with debug.increase_indent_cm('infer for %s' % self._name):
-            return self._infer(**kwargs)
+    @debug.increase_indent_cm('infer on name')
+    def infer(self, *, only_stubs=False, prefer_stubs=False):
+        """
+        Like :meth:`.Script.infer`, it can be useful to understand which type
+        the current name has.
 
-    def _infer(self, only_stubs=False, prefer_stubs=False):
+        Return the actual definitions. I strongly recommend not using it for
+        your completions, because it might slow down |jedi|. If you want to
+        read only a few objects (<=20), it might be useful, especially to get
+        the original docstrings. The basic problem of this function is that it
+        follows all results. This means with 1000 completions (e.g.  numpy),
+        it's just very, very slow.
+
+        :param only_stubs: Only return stubs for this goto call.
+        :param prefer_stubs: Prefer stubs to Python objects for this type
+            inference call.
+        :rtype: list of :class:`Name`
+        """
         assert not (only_stubs and prefer_stubs)
 
         if not self._name.is_value_name:
@@ -406,38 +483,15 @@ class BaseDefinition(object):
             prefer_stubs=prefer_stubs,
         )
         resulting_names = [c.name for c in values]
-        return [self if n == self._name else Definition(self._inference_state, n)
+        return [self if n == self._name else Name(self._inference_state, n)
                 for n in resulting_names]
 
-    @property
-    @memoize_method
-    def params(self):
-        """
-        Deprecated! Will raise a warning soon. Use get_signatures()[...].params.
-
-        Raises an ``AttributeError`` if the definition is not callable.
-        Otherwise returns a list of `Definition` that represents the params.
-        """
-        warnings.warn(
-            "Deprecated since version 0.16.0. Use get_signatures()[...].params",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        # Only return the first one. There might be multiple one, especially
-        # with overloading.
-        for signature in self._get_signatures():
-            return [
-                Definition(self._inference_state, n)
-                for n in signature.get_param_names(resolve_stars=True)
-            ]
-
-        if self.type == 'function' or self.type == 'class':
-            # Fallback, if no signatures were defined (which is probably by
-            # itself a bug).
-            return []
-        raise AttributeError('There are no params defined on this.')
-
     def parent(self):
+        """
+        Returns the parent scope of this identifier.
+
+        :rtype: Name
+        """
         if not self._name.is_value_name:
             return None
 
@@ -463,7 +517,7 @@ class BaseDefinition(object):
             # Happens for comprehension contexts
             context = context.parent_context
 
-        return Definition(self._inference_state, context.name)
+        return Name(self._inference_state, context.name)
 
     def __repr__(self):
         return "<%s %sname=%r, description=%r>" % (
@@ -501,27 +555,57 @@ class BaseDefinition(object):
             # statements and not stubs. This is a speed optimization.
             return []
 
+        if isinstance(self._name, MixedName):
+            # While this would eventually happen anyway, it's basically just a
+            # shortcut to not infer anything tree related, because it's really
+            # not necessary.
+            return self._name.infer_compiled_value().get_signatures()
+
         names = convert_names([self._name], prefer_stubs=True)
         return [sig for name in names for sig in name.infer().get_signatures()]
 
     def get_signatures(self):
+        """
+        Returns all potential signatures for a function or a class. Multiple
+        signatures are typical if you use Python stubs with ``@overload``.
+
+        :rtype: list of :class:`BaseSignature`
+        """
         return [
             BaseSignature(self._inference_state, s)
             for s in self._get_signatures()
         ]
 
     def execute(self):
+        """
+        Uses type inference to "execute" this identifier and returns the
+        executed objects.
+
+        :rtype: list of :class:`Name`
+        """
         return _values_to_definitions(self._name.infer().execute_with_values())
 
+    def get_type_hint(self):
+        """
+        Returns type hints like ``Iterable[int]`` or ``Union[int, str]``.
 
-class Completion(BaseDefinition):
+        This method might be quite slow, especially for functions. The problem
+        is finding executions for those functions to return something like
+        ``Callable[[int, str], str]``.
+
+        :rtype: str
+        """
+        return self._name.infer().get_type_hint()
+
+
+class Completion(BaseName):
     """
-    `Completion` objects are returned from :meth:`api.Script.complete`. They
+    ``Completion`` objects are returned from :meth:`.Script.complete`. They
     provide additional information about a completion.
     """
     def __init__(self, inference_state, name, stack, like_name_length,
                  is_fuzzy, cached_name=None):
-        super(Completion, self).__init__(inference_state, name)
+        super().__init__(inference_state, name)
 
         self._like_name_length = like_name_length
         self._stack = stack
@@ -554,15 +638,15 @@ class Completion(BaseDefinition):
             isinstan# <-- Cursor is here
 
         would return the string 'ce'. It also adds additional stuff, depending
-        on your `settings.py`.
+        on your ``settings.py``.
 
         Assuming the following function definition::
 
             def foo(param=0):
                 pass
 
-        completing ``foo(par`` would give a ``Completion`` which `complete`
-        would be `am=`
+        completing ``foo(par`` would give a ``Completion`` which ``complete``
+        would be ``am=``.
         """
         if self._is_fuzzy:
             return None
@@ -571,7 +655,7 @@ class Completion(BaseDefinition):
     @property
     def name_with_symbols(self):
         """
-        Similar to :attr:`name`, but like :attr:`name` returns also the
+        Similar to :attr:`.name`, but like :attr:`.name` returns also the
         symbols, for example assuming the following function definition::
 
             def foo(param=0):
@@ -584,12 +668,15 @@ class Completion(BaseDefinition):
         return self._complete(False)
 
     def docstring(self, raw=False, fast=True):
+        """
+        Documented under :meth:`BaseName.docstring`.
+        """
         if self._like_name_length >= 3:
             # In this case we can just resolve the like name, because we
             # wouldn't load like > 100 Python modules anymore.
             fast = False
 
-        return super(Completion, self).docstring(raw=raw, fast=fast)
+        return super().docstring(raw=raw, fast=fast)
 
     def _get_docstring(self):
         if self._cached_name is not None:
@@ -598,7 +685,7 @@ class Completion(BaseDefinition):
                 self._name.get_public_name(),
                 lambda: self._get_cache()
             )
-        return super(Completion, self)._get_docstring()
+        return super()._get_docstring()
 
     def _get_docstring_signature(self):
         if self._cached_name is not None:
@@ -607,18 +694,20 @@ class Completion(BaseDefinition):
                 self._name.get_public_name(),
                 lambda: self._get_cache()
             )
-        return super(Completion, self)._get_docstring_signature()
+        return super()._get_docstring_signature()
 
     def _get_cache(self):
-        typ = super(Completion, self).type
         return (
-            typ,
-            super(Completion, self)._get_docstring_signature(),
-            super(Completion, self)._get_docstring(),
+            super().type,
+            super()._get_docstring_signature(),
+            super()._get_docstring(),
         )
 
     @property
     def type(self):
+        """
+        Documented under :meth:`BaseName.type`.
+        """
         # Purely a speed optimization.
         if self._cached_name is not None:
             return completion_cache.get_type(
@@ -627,59 +716,44 @@ class Completion(BaseDefinition):
                 lambda: self._get_cache()
             )
 
-        return super(Completion, self).type
+        return super().type
+
+    def get_completion_prefix_length(self):
+        """
+        Returns the length of the prefix being completed.
+        For example, completing ``isinstance``::
+
+            isinstan# <-- Cursor is here
+
+        would return 8, because len('isinstan') == 8.
+
+        Assuming the following function definition::
+
+            def foo(param=0):
+                pass
+
+        completing ``foo(par`` would return 3.
+        """
+        return self._like_name_length
 
     def __repr__(self):
         return '<%s: %s>' % (type(self).__name__, self._name.get_public_name())
 
-    @memoize_method
-    def follow_definition(self):
-        """
-        Deprecated!
 
-        Return the original definitions. I strongly recommend not using it for
-        your completions, because it might slow down |jedi|. If you want to
-        read only a few objects (<=20), it might be useful, especially to get
-        the original docstrings. The basic problem of this function is that it
-        follows all results. This means with 1000 completions (e.g.  numpy),
-        it's just PITA-slow.
-        """
-        warnings.warn(
-            "Deprecated since version 0.14.0. Use .infer.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-        return self.infer()
-
-
-class Definition(BaseDefinition):
+class Name(BaseName):
     """
-    *Definition* objects are returned from :meth:`api.Script.goto`
-    or :meth:`api.Script.infer`.
+    *Name* objects are returned from many different APIs including
+    :meth:`.Script.goto` or :meth:`.Script.infer`.
     """
     def __init__(self, inference_state, definition):
-        super(Definition, self).__init__(inference_state, definition)
-
-    @property
-    def desc_with_module(self):
-        """
-        In addition to the definition, also return the module.
-
-        .. warning:: Don't use this function yet, its behaviour may change. If
-            you really need it, talk to me.
-
-        .. todo:: Add full path. This function is should return a
-            `module.class.function` path.
-        """
-        position = '' if self.in_builtin_module else '@%s' % self.line
-        return "%s:%s%s" % (self.module_name, self.description, position)
+        super().__init__(inference_state, definition)
 
     @memoize_method
     def defined_names(self):
         """
         List sub-definitions (e.g., methods in class).
 
-        :rtype: list of Definition
+        :rtype: list of :class:`Name`
         """
         defs = self._name.infer()
         return sorted(
@@ -710,45 +784,53 @@ class Definition(BaseDefinition):
         return hash((self._name.start_pos, self.module_path, self.name, self._inference_state))
 
 
-class BaseSignature(Definition):
+class BaseSignature(Name):
     """
-    `BaseSignature` objects is the return value of `Script.function_definition`.
-    It knows what functions you are currently in. e.g. `isinstance(` would
-    return the `isinstance` function. without `(` it would return nothing.
+    These signatures are returned by :meth:`BaseName.get_signatures`
+    calls.
     """
     def __init__(self, inference_state, signature):
-        super(BaseSignature, self).__init__(inference_state, signature.name)
+        super().__init__(inference_state, signature.name)
         self._signature = signature
 
     @property
     def params(self):
         """
-        :return list of ParamDefinition:
+        Returns definitions for all parameters that a signature defines.
+        This includes stuff like ``*args`` and ``**kwargs``.
+
+        :rtype: list of :class:`.ParamName`
         """
-        return [ParamDefinition(self._inference_state, n)
+        return [ParamName(self._inference_state, n)
                 for n in self._signature.get_param_names(resolve_stars=True)]
 
     def to_string(self):
+        """
+        Returns a text representation of the signature. This could for example
+        look like ``foo(bar, baz: int, **kwargs)``.
+
+        :rtype: str
+        """
         return self._signature.to_string()
 
 
 class Signature(BaseSignature):
     """
-    `Signature` objects is the return value of `Script.get_signatures`.
-    It knows what functions you are currently in. e.g. `isinstance(` would
-    return the `isinstance` function with its params. Without `(` it would
-    return nothing.
+    A full signature object is the return value of
+    :meth:`.Script.get_signatures`.
     """
     def __init__(self, inference_state, signature, call_details):
-        super(Signature, self).__init__(inference_state, signature)
+        super().__init__(inference_state, signature)
         self._call_details = call_details
         self._signature = signature
 
     @property
     def index(self):
         """
-        The Param index of the current call.
+        Returns the param index of the current cursor position.
         Returns None if the index cannot be found in the curent call.
+
+        :rtype: int
         """
         return self._call_details.calculate_index(
             self._signature.get_param_names(resolve_stars=True)
@@ -757,8 +839,10 @@ class Signature(BaseSignature):
     @property
     def bracket_start(self):
         """
-        The line/column of the bracket that is responsible for the last
-        function call.
+        Returns a line/column tuple of the bracket that is responsible for the
+        last function call. The first line is 1 and the first column 0.
+
+        :rtype: int, int
         """
         return self._call_details.bracket_leaf.start_pos
 
@@ -770,35 +854,37 @@ class Signature(BaseSignature):
         )
 
 
-class ParamDefinition(Definition):
+class ParamName(Name):
     def infer_default(self):
         """
-        :return list of Definition:
+        Returns default values like the ``1`` of ``def foo(x=1):``.
+
+        :rtype: list of :class:`.Name`
         """
         return _values_to_definitions(self._name.infer_default())
 
     def infer_annotation(self, **kwargs):
         """
-        :return list of Definition:
-
-        :param execute_annotation: If False, the values are not executed and
-            you get classes instead of instances.
+        :param execute_annotation: Default True; If False, values are not
+            executed and classes are returned instead of instances.
+        :rtype: list of :class:`.Name`
         """
         return _values_to_definitions(self._name.infer_annotation(ignore_stars=True, **kwargs))
 
     def to_string(self):
+        """
+        Returns a simple representation of a param, like
+        ``f: Callable[..., Any]``.
+
+        :rtype: str
+        """
         return self._name.to_string()
 
     @property
     def kind(self):
         """
-        Returns an enum instance. Returns the same values as the builtin
-        :py:attr:`inspect.Parameter.kind`.
+        Returns an enum instance of :mod:`inspect`'s ``Parameter`` enum.
 
-        No support for Python < 3.4 anymore.
+        :rtype: :py:attr:`inspect.Parameter.kind`
         """
-        if sys.version_info < (3, 5):
-            raise NotImplementedError(
-                'Python 2 is end-of-life, the new feature is not available for it'
-            )
         return self._name.get_kind()

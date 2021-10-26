@@ -3,25 +3,13 @@ Tests of ``jedi.api.Interpreter``.
 """
 import sys
 import warnings
+import typing
 
 import pytest
 
 import jedi
-from jedi._compatibility import is_py3, py_version
 from jedi.inference.compiled import mixed
 from importlib import import_module
-
-if py_version > 30:
-    def exec_(source, global_map):
-        exec(source, global_map)
-else:
-    eval(compile("""def exec_(source, global_map):
-                        exec source in global_map """, 'blub', 'exec'))
-
-if py_version > 35:
-    import typing
-else:
-    typing = None
 
 
 class _GlobalNameSpace:
@@ -123,56 +111,36 @@ def _assert_interpreter_complete(source, namespace, completions,
 
 def test_complete_raw_function():
     from os.path import join
-    _assert_interpreter_complete('join("").up',
-                                 locals(),
-                                 ['upper'])
+    _assert_interpreter_complete('join("").up', locals(), ['upper'])
 
 
 def test_complete_raw_function_different_name():
     from os.path import join as pjoin
-    _assert_interpreter_complete('pjoin("").up',
-                                 locals(),
-                                 ['upper'])
+    _assert_interpreter_complete('pjoin("").up', locals(), ['upper'])
 
 
 def test_complete_raw_module():
     import os
-    _assert_interpreter_complete('os.path.join("a").up',
-                                 locals(),
-                                 ['upper'])
+    _assert_interpreter_complete('os.path.join("a").up', locals(), ['upper'])
 
 
 def test_complete_raw_instance():
     import datetime
     dt = datetime.datetime(2013, 1, 1)
-    completions = ['time', 'timetz', 'timetuple']
-    if is_py3:
-        completions += ['timestamp']
-    _assert_interpreter_complete('(dt - dt).ti',
-                                 locals(),
-                                 completions)
+    completions = ['time', 'timetz', 'timetuple', 'timestamp']
+    _assert_interpreter_complete('(dt - dt).ti', locals(), completions)
 
 
 def test_list():
     array = ['haha', 1]
-    _assert_interpreter_complete('array[0].uppe',
-                                 locals(),
-                                 ['upper'])
-    _assert_interpreter_complete('array[0].real',
-                                 locals(),
-                                 [])
+    _assert_interpreter_complete('array[0].uppe', locals(), ['upper'])
+    _assert_interpreter_complete('array[0].real', locals(), [])
 
     # something different, no index given, still just return the right
-    _assert_interpreter_complete('array[int].real',
-                                 locals(),
-                                 ['real'])
-    _assert_interpreter_complete('array[int()].real',
-                                 locals(),
-                                 ['real'])
+    _assert_interpreter_complete('array[int].real', locals(), ['real'])
+    _assert_interpreter_complete('array[int()].real', locals(), ['real'])
     # inexistent index
-    _assert_interpreter_complete('array[2].upper',
-                                 locals(),
-                                 ['upper'])
+    _assert_interpreter_complete('array[2].upper', locals(), ['upper'])
 
 
 def test_getattr():
@@ -186,9 +154,7 @@ def test_slice():
     class Foo1:
         bar = []
     baz = 'xbarx'
-    _assert_interpreter_complete('getattr(Foo1, baz[1:-1]).append',
-                                 locals(),
-                                 ['append'])
+    _assert_interpreter_complete('getattr(Foo1, baz[1:-1]).append', locals(), ['append'])
 
 
 def test_getitem_side_effects():
@@ -218,7 +184,6 @@ def test_property_warnings(stacklevel, allow_unsafe_getattr):
     _assert_interpreter_complete('foo.prop.uppe', locals(), expected)
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize('class_is_findable', [False, True])
 def test__getattr__completions(allow_unsafe_getattr, class_is_findable):
     class CompleteGetattr(object):
@@ -309,7 +274,6 @@ def test_property_content():
     assert def_.name == 'int'
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 def test_param_completion():
     def foo(bar):
         pass
@@ -327,7 +291,6 @@ def test_endless_yield():
     _assert_interpreter_complete('list(lst)[9000].rea', locals(), ['real'])
 
 
-@pytest.mark.skipif('py_version < 33', reason='inspect.signature was created in 3.3.')
 def test_completion_params():
     foo = lambda a, b=3: None
 
@@ -340,12 +303,11 @@ def test_completion_params():
     assert t.name == 'int'
 
 
-@pytest.mark.skipif('py_version < 33', reason='inspect.signature was created in 3.3.')
 def test_completion_param_annotations():
-    # Need to define this function not directly in Python. Otherwise Jedi is to
+    # Need to define this function not directly in Python. Otherwise Jedi is too
     # clever and uses the Python code instead of the signature object.
     code = 'def foo(a: 1, b: str, c: int = 1.0) -> bytes: pass'
-    exec_(code, locals())
+    exec(code, locals())
     script = jedi.Interpreter('foo', [locals()])
     c, = script.complete()
     sig, = c.get_signatures()
@@ -354,11 +316,14 @@ def test_completion_param_annotations():
     assert [d.name for d in b.infer()] == ['str']
     assert {d.name for d in c.infer()} == {'int', 'float'}
 
+    assert a.description == 'param a: 1'
+    assert b.description == 'param b: str'
+    assert c.description == 'param c: int=1.0'
+
     d, = jedi.Interpreter('foo()', [locals()]).infer()
     assert d.name == 'bytes'
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 def test_keyword_argument():
     def f(some_keyword_argument):
         pass
@@ -367,12 +332,10 @@ def test_keyword_argument():
     assert c.name == 'some_keyword_argument='
     assert c.complete == 'ord_argument='
 
-    # This needs inspect.signature to work.
-    if is_py3:
-        # Make it impossible for jedi to find the source of the function.
-        f.__name__ = 'xSOMETHING'
-        c, = jedi.Interpreter("x(some_keyw", [{'x': f}]).complete()
-        assert c.name == 'some_keyword_argument='
+    # Make it impossible for jedi to find the source of the function.
+    f.__name__ = 'xSOMETHING'
+    c, = jedi.Interpreter("x(some_keyw", [{'x': f}]).complete()
+    assert c.name == 'some_keyword_argument='
 
 
 def test_more_complex_instances():
@@ -421,16 +384,12 @@ def test_dir_magic_method(allow_unsafe_getattr):
             raise AttributeError(name)
 
         def __dir__(self):
-            if is_py3:
-                names = object.__dir__(self)
-            else:
-                names = dir(object())
-            return ['foo', 'bar'] + names
+            return ['foo', 'bar'] + object.__dir__(self)
 
     itp = jedi.Interpreter("ca.", [{'ca': CompleteAttrs()}])
     completions = itp.complete()
     names = [c.name for c in completions]
-    assert ('__dir__' in names) == is_py3
+    assert ('__dir__' in names) is True
     assert '__class__' in names
     assert 'foo' in names
     assert 'bar' in names
@@ -471,7 +430,6 @@ def test_sys_path_docstring():  # Was an issue in #1298
     s.complete(line=2, column=4)[0].docstring()
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'code, completions', [
         ('x[0].uppe', ['upper']),
@@ -517,7 +475,6 @@ def test_simple_completions(code, completions):
     assert [d.name for d in defs] == completions
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Python 2 doesn't have lru_cache")
 def test__wrapped__():
     from functools import lru_cache
 
@@ -530,14 +487,21 @@ def test__wrapped__():
     assert c.line == syslogs_to_df.__wrapped__.__code__.co_firstlineno + 1
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
+def test_illegal_class_instance():
+    class X:
+        __class__ = 1
+    X.__name__ = 'asdf'
+    d, = jedi.Interpreter('foo', [{'foo': X()}]).infer()
+    v, = d._name.infer()
+    assert not v.is_instance()
+
+
 @pytest.mark.parametrize('module_name', ['sys', 'time', 'unittest.mock'])
 def test_core_module_completes(module_name):
     module = import_module(module_name)
     assert jedi.Interpreter('module.', [locals()]).complete()
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'code, expected, index', [
         ('a(', ['a', 'b', 'c'], 0),
@@ -563,7 +527,6 @@ def test_partial_signatures(code, expected, index):
     assert index == sig.index
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 def test_type_var():
     """This was an issue before, see Github #1369"""
     import typing
@@ -572,7 +535,6 @@ def test_type_var():
     assert def_.name == 'TypeVar'
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize('class_is_findable', [False, True])
 def test_param_annotation_completion(class_is_findable):
     class Foo:
@@ -586,7 +548,6 @@ def test_param_annotation_completion(class_is_findable):
     assert def_.name == 'bar'
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'code, column, expected', [
         ('strs[', 5, ["'asdf'", "'fbar'", "'foo'", Ellipsis]),
@@ -600,11 +561,17 @@ def test_param_annotation_completion(class_is_findable):
         ('mixed[Non', 9, ['e']),
 
         ('implicit[10', None, ['00']),
+
+        ('inherited["', None, ['blablu"']),
     ]
 )
 def test_dict_completion(code, column, expected):
-    strs = {'asdf': 1, u"""foo""": 2, r'fbar': 3}
+    strs = {'asdf': 1, """foo""": 2, r'fbar': 3}
     mixed = {1: 2, 1.10: 4, None: 6, r'a\sdf': 8, b'foo': 9}
+
+    class Inherited(dict):
+        pass
+    inherited = Inherited(blablu=3)
 
     namespaces = [locals(), {'implicit': {1000: 3}}]
     comps = jedi.Interpreter(code, namespaces).complete(column=column)
@@ -617,7 +584,6 @@ def test_dict_completion(code, column, expected):
     assert [c.complete for c in comps] == expected
 
 
-@pytest.mark.skipif(sys.version_info[0] == 2, reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'code, types', [
         ('dct[1]', ['int']),
@@ -641,7 +607,6 @@ def bar():
     return float
 
 
-@pytest.mark.skipif(sys.version_info < (3, 6), reason="Ignore Python 2, because EOL")
 @pytest.mark.parametrize(
     'annotations, result, code', [
         ({}, [], ''),
@@ -656,13 +621,15 @@ def bar():
 
         # typing is available via globals.
         ({'return': 'typing.Union[str, int]'}, ['int', 'str'], ''),
-        ({'return': 'typing.Union["str", int]'}, ['int'], ''),
+        ({'return': 'typing.Union["str", int]'},
+         ['int', 'str'] if sys.version_info >= (3, 9) else ['int'], ''),
         ({'return': 'typing.Union["str", 1]'}, [], ''),
         ({'return': 'typing.Optional[str]'}, ['NoneType', 'str'], ''),
         ({'return': 'typing.Optional[str, int]'}, [], ''),  # Takes only one arg
         ({'return': 'typing.Any'}, [], ''),
 
-        ({'return': 'typing.Tuple[int, str]'}, ['tuple'], ''),
+        ({'return': 'typing.Tuple[int, str]'},
+         ['Tuple' if sys.version_info[:2] == (3, 6) else 'tuple'], ''),
         ({'return': 'typing.Tuple[int, str]'}, ['int'], 'x()[0]'),
         ({'return': 'typing.Tuple[int, str]'}, ['str'], 'x()[1]'),
         ({'return': 'typing.Tuple[int, str]'}, [], 'x()[2]'),
@@ -684,5 +651,30 @@ def bar():
 def test_string_annotation(annotations, result, code):
     x = lambda foo: 1
     x.__annotations__ = annotations
-    defs = jedi.Interpreter(code or 'x()', [locals()]).goto_definitions()
+    defs = jedi.Interpreter(code or 'x()', [locals()]).infer()
     assert [d.name for d in defs] == result
+
+
+def test_name_not_inferred_properly():
+    """
+    In IPython notebook it is typical that some parts of the code that is
+    provided was already executed. In that case if something is not properly
+    inferred, it should still infer from the variables it already knows.
+    """
+    x = 1
+    d, = jedi.Interpreter('x = UNDEFINED; x', [locals()]).infer()
+    assert d.name == 'int'
+
+
+def test_variable_reuse():
+    x = 1
+    d, = jedi.Interpreter('y = x\ny', [locals()]).infer()
+    assert d.name == 'int'
+
+
+def test_negate():
+    code = "x = -y"
+    x, = jedi.Interpreter(code, [{'y': 3}]).infer(1, 0)
+    assert x.name == 'int'
+    value, = x._name.infer()
+    assert value.get_safe_value() == -3

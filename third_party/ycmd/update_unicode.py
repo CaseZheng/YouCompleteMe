@@ -16,12 +16,6 @@
 # You should have received a copy of the GNU General Public License
 # along with ycmd.  If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import unicode_literals
-from __future__ import print_function
-from __future__ import division
-from __future__ import absolute_import
-
-import re
 import pprint
 import sys
 from collections import defaultdict, OrderedDict
@@ -32,16 +26,10 @@ from io import StringIO
 DIR_OF_THIS_SCRIPT = p.dirname( p.abspath( __file__ ) )
 DIR_OF_THIRD_PARTY = p.join( DIR_OF_THIS_SCRIPT, 'third_party' )
 
-sys.path[ 0:0 ] = [ p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'requests' ),
-                    p.join( DIR_OF_THIRD_PARTY,
-                            'requests_deps',
-                            'urllib3',
-                            'src' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'chardet' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'certifi' ),
-                    p.join( DIR_OF_THIRD_PARTY, 'requests_deps', 'idna' ) ]
+sys.path[ 0:0 ] = [ p.join( DIR_OF_THIRD_PARTY, 'regex-build' ) ]
 
-import requests
+import regex as re
+import urllib.request
 
 DIR_OF_CPP_SOURCES = p.join( DIR_OF_THIS_SCRIPT, 'cpp', 'ycm' )
 UNICODE_TABLE_TEMPLATE = (
@@ -68,7 +56,7 @@ GRAPHEME_BREAK_PROPERTY_REGEX = re.compile(
 GRAPHEME_BREAK_PROPERTY_TOTAL = re.compile(
   r'# Total code points: (?P<total>\d+)' )
 # See
-# https://www.unicode.org/reports/tr29/#Grapheme_Cluster_Break_Property_Values
+# https://www.unicode.org/reports/tr29/tr29-37.html#Grapheme_Cluster_Break_Property_Values
 GRAPHEME_BREAK_PROPERTY_MAP = {
   # "Other" is the term used in the Unicode data while "Any" is used in the
   # docs.
@@ -111,9 +99,8 @@ HANGUL_LVT_COUNT = HANGUL_L_COUNT * HANGUL_VT_COUNT
 
 
 def Download( url ):
-  request = requests.get( url )
-  request.raise_for_status()
-  return request.text.splitlines()
+  with urllib.request.urlopen( url ) as response:
+    return response.read().splitlines()
 
 
 # Encode a Unicode code point in UTF-8 binary form.
@@ -190,7 +177,7 @@ def GetUnicodeVersion():
   raise RuntimeError( 'Cannot find the version of the Unicode Standard.' )
 
 
-# See https://www.unicode.org/reports/tr44/tr44-20.html#UnicodeData.txt
+# See https://www.unicode.org/reports/tr44/tr44-26.html#UnicodeData.txt
 def GetUnicodeData():
   data = Download(
     'https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt' )
@@ -234,7 +221,7 @@ def GetUnicodeData():
 
 
 # See
-# https://www.unicode.org/reports/tr44/tr44-20.html#GraphemeBreakProperty.txt
+# https://www.unicode.org/reports/tr44/tr44-26.html#GraphemeBreakProperty.txt
 def GetGraphemeBreakProperty():
   data = Download( 'https://www.unicode.org/'
     'Public/UCD/latest/ucd/auxiliary/GraphemeBreakProperty.txt' )
@@ -274,7 +261,7 @@ def GetGraphemeBreakProperty():
   return break_data
 
 
-# See https://www.unicode.org/reports/tr44/tr44-20.html#SpecialCasing.txt
+# See https://www.unicode.org/reports/tr44/tr44-26.html#SpecialCasing.txt
 def GetSpecialFolding():
   data = Download(
     'https://www.unicode.org/Public/UCD/latest/ucd/SpecialCasing.txt' )
@@ -300,7 +287,7 @@ def GetSpecialFolding():
   return folding_data
 
 
-# See https://www.unicode.org/reports/tr44/tr44-20.html#CaseFolding.txt
+# See https://www.unicode.org/reports/tr44/tr44-26.html#CaseFolding.txt
 def GetCaseFolding():
   data = Download(
     'https://www.unicode.org/Public/UCD/latest/ucd/CaseFolding.txt' )
@@ -361,7 +348,7 @@ def GetEmojiData():
 
 
 # Decompose a hangul syllable using the algorithm described in
-# https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G61399
+# https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G61399
 def DecomposeHangul( code_point ):
   index = int( code_point, 16 ) - HANGUL_BASE
   if index < 0 or index >= HANGUL_LVT_COUNT:
@@ -378,7 +365,7 @@ def DecomposeHangul( code_point ):
 
 # Recursively decompose a Unicode code point into a list of code points
 # according to canonical decomposition.
-# See https://www.unicode.org/versions/Unicode10.0.0/ch03.pdf#G733
+# See https://www.unicode.org/versions/Unicode13.0.0/ch03.pdf#G733
 def Decompose( code_point, unicode_data ):
   code_points = DecomposeHangul( code_point )
   if code_points:
@@ -467,8 +454,8 @@ def GetCodePoints():
                             '{} property'.format( break_property ) )
     break_property = GRAPHEME_BREAK_PROPERTY_MAP[ break_property ]
     combining_class = int( value[ 'ccc' ] )
-    # See https://unicode.org/reports/tr44/#General_Category_Values for the
-    # list of categories.
+    # See https://unicode.org/reports/tr44/tr44-26.html#General_Category_Values
+    # for the list of categories.
     if ( code_point != normal_code_point or
          code_point != folded_code_point or
          code_point != swapped_code_point or
@@ -572,10 +559,62 @@ def GenerateUnicodeTable( header_path, code_points ):
     header_file.write( contents )
 
 
+def GenerateNormalizationTestCases( output_file ):
+  test_contents = Download(
+      'https://unicode.org/Public/UCD/latest/ucd/NormalizationTest.txt' )
+  hex_codepoint = '(?:[A-F0-9]{4,} ?)+'
+  pattern = f'(?:{ hex_codepoint };){{5}}'
+  pattern = re.compile( pattern )
+
+  res = []
+  for line in test_contents:
+    m = pattern.match( line )
+    if m:
+      captures = m[ 0 ].split( ';' )
+      res.append(
+        '{"' +
+        JoinUnicodeToUtf8( captures[ 0 ].split() ) + '","' +
+        JoinUnicodeToUtf8( captures[ 1 ].split() ) + '","' +
+        JoinUnicodeToUtf8( captures[ 2 ].split() ) + '","' +
+        JoinUnicodeToUtf8( captures[ 3 ].split() ) + '","' +
+        JoinUnicodeToUtf8( captures[ 4 ].split() ) + '"},\n' )
+
+  res[ -1 ] = res[ -1 ].rstrip( ',\n' )
+  with open( output_file, 'w' ) as f:
+    f.writelines( res )
+
+
+def GenerateGraphemeBreakTestCases( output_file ):
+  test_contents = Download( 'https://www.unicode.org/'
+      'Public/UCD/latest/ucd/auxiliary/GraphemeBreakTest.txt' )
+
+  res = []
+  for line in test_contents:
+    if line.startswith( '÷' ):
+      data = line.split( '#' )[ 0 ].rstrip().strip( '÷' ).strip()
+      all_data = data.replace( ' × ', ' ÷ ' ).replace( '÷ ', '' )
+      all_data = JoinUnicodeToUtf8( all_data.split() )
+      split_data = data.replace( '× ', '' ).split( ' ÷ ' )
+      for i, e in enumerate( split_data ):
+        split_data[ i ] = JoinUnicodeToUtf8( e.split() )
+
+      res.append( '{"' + all_data + '",{' + ''.join( [ '"' + x + '",'
+                  for x in split_data ] ).rstrip( ',' ) + '}},\n' )
+
+  res[ -1 ] = res[ -1 ].rstrip( ',\n' )
+  with open( output_file, 'w' ) as f:
+    f.writelines( res )
+
+
 def Main():
   code_points = GetCodePoints()
   table_path = p.join( DIR_OF_CPP_SOURCES, 'UnicodeTable.inc' )
   GenerateUnicodeTable( table_path, code_points )
+  cpp_tests_path = p.join( DIR_OF_CPP_SOURCES, 'tests' )
+  normalization_cases_path = p.join( cpp_tests_path, 'NormalizationCases.inc' )
+  GenerateNormalizationTestCases( normalization_cases_path )
+  grapheme_break_cases_path = p.join( cpp_tests_path, 'GraphemeBreakCases.inc' )
+  GenerateGraphemeBreakTestCases( grapheme_break_cases_path )
 
 
 if __name__ == '__main__':

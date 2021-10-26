@@ -31,6 +31,7 @@ from hamcrest import ( all_of,
                        is_not,
                        raises )
 
+from ycmd.completers import completer
 from ycmd.completers.language_server import language_server_completer as lsc
 from ycmd.completers.language_server.language_server_completer import (
     NoHoverInfoException,
@@ -54,7 +55,8 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
     user_options.update( custom_options )
     super().__init__( user_options )
 
-    self._connection = MockConnection()
+    self._connection = MockConnection(
+        lambda request: self.WorkspaceConfigurationResponse( request ) )
     self._started = False
 
   def Language( self ):
@@ -63,6 +65,7 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
 
   def StartServer( self, request_data, **kwargs ):
     self._started = True
+    self._project_directory = self.GetProjectDirectory( request_data )
     return True
 
 
@@ -78,8 +81,12 @@ class MockCompleter( lsc.LanguageServerCompleter, DummyCompleter ):
     return self._started
 
 
-  def _RestartServer( self, request_data ):
-    pass
+  def GetCommandLine( self ):
+    return [ 'server' ]
+
+
+  def GetServerName( self ):
+    return 'mock_completer'
 
 
 @IsolatedYcmd( { 'global_ycm_extra_conf':
@@ -317,7 +324,7 @@ def LanguageServerCompleter_GoTo_test( app ):
         )
       else:
         result = completer.OnUserCommand( [ command ], request_data )
-        print( 'Result: {}'.format( result ) )
+        print( f'Result: { result }' )
         assert_that( result, exception )
 
 
@@ -572,7 +579,7 @@ def WorkspaceEditToFixIt_test():
     lsc.WorkspaceEditToFixIt( request_data, workspace_edit, 'test' )
   ] )
 
-  print( 'Response: {0}'.format( response ) )
+  print( f'Response: { response }' )
   assert_that(
     response,
     has_entries( {
@@ -603,8 +610,8 @@ def WorkspaceEditToFixIt_test():
     lsc.WorkspaceEditToFixIt( request_data, workspace_edit, 'test' )
   ] )
 
-  print( 'Response: {0}'.format( response ) )
-  print( 'Type Response: {0}'.format( type( response ) ) )
+  print( f'Response: { response }' )
+  print( f'Type Response: { type( response ) }' )
 
   assert_that(
     response,
@@ -641,6 +648,23 @@ def LanguageServerCompleter_DelayedInitialization_test( app ):
 
       update.assert_called_with( request_data )
       purge.assert_called_with( 'Test.ycmtest' )
+
+
+@IsolatedYcmd()
+def LanguageServerCompleter_RejectWorkspaceConfigurationRequest_test( app ):
+  completer = MockCompleter()
+  notification = {
+    'jsonrpc': '2.0',
+    'method': 'workspace/configuration',
+    'id': 1234,
+    'params': {
+      'items': [ { 'section': 'whatever' } ]
+    }
+  }
+  with patch( 'ycmd.completers.language_server.'
+              'language_server_protocol.Reject' ) as reject:
+    completer.GetConnection()._DispatchMessage( notification )
+    reject.assert_called_with( notification, lsp.Errors.MethodNotFound )
 
 
 @IsolatedYcmd()
@@ -1015,6 +1039,8 @@ def LanguageServerCompleter_GetCodeActions_CursorOnEmptyLine_test( app ):
                      has_entry( 'fixits', empty() ) )
         assert_that(
           # Range passed to lsp.CodeAction.
+          # LSP requires to use the start of the next line as the end position
+          # for a range that ends with a newline.
           code_action.call_args[ 0 ][ 2 ],
           has_entries( {
             'start': has_entries( {
@@ -1022,7 +1048,7 @@ def LanguageServerCompleter_GetCodeActions_CursorOnEmptyLine_test( app ):
               'character': 0
             } ),
             'end': has_entries( {
-              'line': 0,
+              'line': 1,
               'character': 0
             } )
           } )
@@ -1362,6 +1388,25 @@ def LanguageServerCompleter_Diagnostics_PercentEncodeCannonical_test( app ):
 
 
 @IsolatedYcmd()
+@patch.object( completer, 'MESSAGE_POLL_TIMEOUT', 0.01 )
+def LanguageServerCompleter_PollForMessages_ServerNotStarted_test( app ):
+  server = MockCompleter()
+  request_data = RequestWrap( BuildRequest() )
+  assert_that( server.PollForMessages( request_data ), equal_to( True ) )
+
+
+@IsolatedYcmd()
+def LanguageServerCompleter_OnFileSave_BeforeServerReady_test( app ):
+  completer = MockCompleter()
+  request_data = RequestWrap( BuildRequest() )
+  with patch.object( completer, 'ServerIsReady', return_value = False ):
+    with patch.object( completer.GetConnection(),
+                       'SendNotification' ) as send_notification:
+      completer.OnFileSave( request_data )
+      send_notification.assert_not_called()
+
+
+@IsolatedYcmd()
 def LanguageServerCompleter_OnFileReadyToParse_InvalidURI_test( app ):
   completer = MockCompleter()
   filepath = os.path.realpath( '/foo?' )
@@ -1446,3 +1491,8 @@ def LanguageServerCompleter_DistanceOfPointToRange_MultiLineRange_test():
   _Check_Distance( ( 1, 4 ), ( 0, 2 ), ( 3, 5 ) , 0 )
   # Point to the right of range.
   _Check_Distance( ( 3, 8 ), ( 0, 2 ), ( 3, 5 ) , 3 )
+
+
+def Dummy_test():
+  # Workaround for https://github.com/pytest-dev/pytest-rerunfailures/issues/51
+  assert True
